@@ -1,4 +1,23 @@
-venv/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.sqlite3
+*.log
+*.pkl
+*.zip
+*.rar
+
+# VSCode / PyCharm
+.vscode/
+.idea/
+
+# Env
+.venv/
+env/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Mac system files
 .DS_Store
