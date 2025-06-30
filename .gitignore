@@ -1,6 +1,6 @@
 # Python
 __pycache__/
-*.py[cod]
+*.pyc
 *.sqlite3
 *.log
 *.pkl
@@ -21,3 +21,6 @@ venv/
 
 # Mac system files
 .DS_Store
+
+# MyPy cache
+.mypy_cache/
