@@ -1,0 +1,39 @@
+{
+    "telegram": {
+        "api_id": 20549026,
+        "api_hash": "eadd507c663945fea24497b1d5883918",
+        "session_file": "userbot.session"
+    },
+    "gpt": {
+        "api_key": "AIzaSyBCQV8yaEXF9pR_AZ0SA7s3CQFtVjzKFdc"
+    },
+    "mt5": {
+        "path": "",
+        "login": 1510998323,
+        "password": "*2Lm282xxw?2$",
+        "server": "FTMO-Demo"
+    },
+    "trading": {
+        "lot_per_tp": 0.01
+    },
+    "ai_trader": {
+        "enabled": true,
+        "lot_size": 0.01,
+        "live_trading": false
+    },
+    "breakeven": {
+        "enabled": true,
+        "pips": 5
+    },
+    "signal_parser": {
+        "enabled": true
+    },
+    "symbol_mapping": {
+        "GOLD": "XAUUSD",
+        "XAU": "XAUUSD",
+        "BITCOIN": "BTCUSD",
+        "BTC": "BTCUSD",
+        "ETH": "ETHUSD",
+        "ETHER": "ETHUSD"
+    }
+}
