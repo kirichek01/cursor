@@ -1,0 +1,28 @@
+/* Фиксированный размер для приложения */
+body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+/* Ограничение размера окна */
+.flet-app {
+    width: 1200px !important;
+    height: 800px !important;
+    min-width: 1200px !important;
+    min-height: 800px !important;
+    max-width: 1200px !important;
+    max-height: 800px !important;
+    resize: none !important;
+}
+
+/* Скрытие полос прокрутки */
+::-webkit-scrollbar {
+    display: none;
+}
+
+/* Фиксированный размер для всех контейнеров */
+.container {
+    width: 1200px !important;
+    height: 800px !important;
+} 

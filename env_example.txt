@@ -1,0 +1,43 @@
+# Combine Trade Bot - Пример переменных окружения
+# Скопируйте этот файл в .env и заполните своими данными
+
+# Telegram API (получите на https://my.telegram.org)
+TELEGRAM_API_ID=your_api_id_here
+TELEGRAM_API_HASH=your_api_hash_here
+TELEGRAM_SESSION_FILE=userbot.session
+
+# MetaTrader 5 (данные от вашего брокера)
+MT5_LOGIN=your_mt5_login
+MT5_PASSWORD=your_mt5_password
+MT5_SERVER=your_broker_server
+MT5_PATH=C:\\Program Files\\MetaTrader 5\\terminal64.exe
+
+# OpenAI API (получите на https://platform.openai.com)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Настройки торговли
+DEFAULT_LOT_SIZE=0.01
+MAX_RISK_PERCENT=2
+BREAKEVEN_ENABLED=false
+BREAKEVEN_PIPS=20
+
+# Настройки AI Trader
+AI_TRADER_ENABLED=false
+AI_LOT_SIZE=0.01
+AI_LIVE_TRADING=false
+
+# Настройки парсера сигналов
+SIGNAL_PARSER_ENABLED=true
+
+# Telegram настройки для парсер бота
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+
+# Настройки риска (опционально)
+MAX_RISK_PER_TRADE=0.02
+MAX_DAILY_LOSS=0.05
+MAX_OPEN_TRADES=3
+
+# Настройки SMC бота (опционально)
+SMC_SYMBOLS=XAUUSD,EURUSD,GBPUSD
+SMC_TIMEFRAME=M15 

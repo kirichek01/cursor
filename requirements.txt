@@ -1,0 +1,30 @@
+# Основной интерфейс
+flet>=0.21.0
+
+# Парсер бот (CombineTradeBotRabochiyBOT)
+PySide6>=6.5.0
+pyqtgraph>=0.13.0
+telegram>=0.0.1
+python-telegram-bot>=20.0
+MetaTrader5>=5.0.45
+pandas>=1.5.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Смартмани бот (sms_bot)
+PyQt6>=6.5.0
+MetaTrader5>=5.0.45
+pandas>=1.5.0
+numpy>=1.24.0
+telegram>=0.0.1
+
+# Общие зависимости
+requests>=2.31.0
+python-dotenv>=1.0.0
+sqlite3
+json5>=0.9.0
+openai>=1.0.0
+telethon>=1.32.0
+plotly>=5.15.0 

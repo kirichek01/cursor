@@ -1,0 +1,9 @@
+PySide6
+telethon
+google-generativeai
+MetaTrader5
+lightgbm
+pandas
+numpy<2.0
+scikit-learn
+pyqtgraph
