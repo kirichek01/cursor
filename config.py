@@ -113,4 +113,4 @@ if __name__ == "__main__":
         print("TELEGRAM_API_ID=your_api_id")
         print("TELEGRAM_API_HASH=your_api_hash")
     else:
-        print("✅ Конфигурация корректна") 
+        print("✅ Конфигурация корректна")

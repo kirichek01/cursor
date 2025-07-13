@@ -20,6 +20,8 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*.pyc
+*.pkl
 
 # Virtual Environment
 venv/
@@ -27,6 +29,7 @@ env/
 ENV/
 env.bak/
 venv.bak/
+.venv/
 
 # IDE
 .vscode/
@@ -64,7 +67,15 @@ userbot.session
 
 # Backup files
 backups/
+*.zip
+*.rar
 
 # Temporary files
 *.tmp
-*.temp 
+*.temp
+
+# Jupyter
+.ipynb_checkpoints/
+
+# MyPy cache
+.mypy_cache/

@@ -241,7 +241,7 @@ class MainApp:
             "Smart Money BOT": create_smartmoney_bot_view(self.page, self.logic_manager),
             "MT5": create_mt5_view(self.logic_manager),
             "History": create_history_view(self.page, self.logic_manager),
-            "Settings": create_settings_view({}, self.logic_manager)[0]
+            "Settings": create_settings_view(self.page, {}, self.logic_manager)
         }
         self.current_page = "Dashboard"
 
@@ -445,4 +445,4 @@ if __name__ == "__main__":
     ft.app(
         target=main,
         assets_dir="assets"
-    ) 
+    )

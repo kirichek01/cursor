@@ -1,1 +1,20 @@
-{}
+{
+    "-1002528249483": {
+        "name": "GOLDHUNTER | PAUL 🦁 FX & CRYPTO 🌍",
+        "active": true,
+        "default_symbol": "XAUUSD",
+        "weekend_symbol": "BTCUSD"
+    },
+    "-1002455381093": {
+        "name": "GOLDHUNTER🦁| PAUL FX 🇳🇱 Feedback Channel",
+        "active": true,
+        "default_symbol": "XAUUSD",
+        "weekend_symbol": "BTCUSD"
+    },
+    "-1001841427779": {
+        "name": "INSIDER DOOR",
+        "active": true,
+        "default_symbol": "XAUUSD",
+        "weekend_symbol": "BTCUSD"
+    }
+}
