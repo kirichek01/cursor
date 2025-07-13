@@ -59,6 +59,7 @@ logs/
 
 # Config files with sensitive data
 config.json
+data/config.json
 userbot.session
 
 # Backup files

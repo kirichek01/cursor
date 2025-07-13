@@ -4,122 +4,40 @@ import os
 import subprocess
 import sys
 
-def create_settings_view(page: ft.Page, settings: dict, logic_manager=None):
-    # 'page' is already passed as an argument to create_settings_view.
-    # We will use 'page' directly for all Flet UI operations within this function.
-
-    # --- Функции-обработчики для модальных окон и удаления сессии (определяются до диалогов) ---
-    def on_code_submit(code):
-        print(f"Код введен: {code}")
-        if page:
-            page.close_dialog()
-            page.update() # Обновить страницу после закрытия диалога
-        if logic_manager and hasattr(logic_manager, 'submit_telegram_code'):
-            logic_manager.submit_telegram_code(code)
-
-    def on_password_submit(password):
-        print(f"Пароль введен: {password}")
-        if page:
-            page.close_dialog()
-            page.update() # Обновить страницу после закрытия диалога
-        if logic_manager and hasattr(logic_manager, 'submit_telegram_password'):
-            logic_manager.submit_telegram_password(password)
-
-    def on_delete_session(e):
-        print("Удаление сессии Telegram...")
-        # Обновляем логику удаления сессии, чтобы она вызывалась через logic_manager
-        if logic_manager and hasattr(logic_manager, 'delete_telegram_session'):
-            logic_manager.delete_telegram_session()
-            session_log.value = "Сессия Telegram удалена."
-            session_log.color = "#4CAF50"
-            session_log.update()
-            update_statuses()
-        else:
-            # На случай, если logic_manager еще не готов, удаляем файл напрямую
-            session_file = session_file_input.value or "userbot.session"
-            session_path = os.path.join("data", session_file)
-            if os.path.exists(session_path):
-                os.remove(session_path)
-                session_log.value = "✅ Сессия Telegram удалена (файл)."
-                session_log.color = "#4CAF50"
-            else:
-                session_log.value = "❌ Файл сессии не найден."
-                session_log.color = "#f44336"
-            session_log.update()
-            update_statuses()
-
-
-    # --- Модальные окна для кода и пароля ---
-    code_input = ft.TextField(label="Введите код из Telegram", autofocus=True)
-    password_input = ft.TextField(label="Облачный пароль Telegram", password=True, autofocus=True)
-
-    code_dialog = ft.AlertDialog(
-        modal=True,
-        title=ft.Text("Подтверждение Telegram"),
-        content=code_input,
-        actions=[
-            ft.TextButton("OK", on_click=lambda e: on_code_submit(code_input.value))
-        ],
-        open=False
-    )
-    password_dialog = ft.AlertDialog(
-        modal=True,
-        title=ft.Text("Облачный пароль Telegram"),
-        content=password_input,
-        actions=[
-            ft.TextButton("OK", on_click=lambda e: on_password_submit(password_input.value))
-        ],
-        open=False
-    )
-
-    # --- Функции для показа модальных окон ---
-    def show_code_dialog():
-        print("Вызов show_code_dialog!")
-        code_input.value = "" # Очищаем поле ввода
-        if page:
-            page.open_dialog(code_dialog)
-            page.update()
-
-    def show_password_dialog():
-        print("Вызов show_password_dialog!")
-        password_input.value = "" # Очищаем поле ввода
-        if page:
-            page.open_dialog(password_dialog)
-            page.update()
-
-    # --- Подписка на события Telegram через pubsub ---
-    page.pubsub.subscribe_topic("telegram_code_required", lambda _: show_code_dialog())
-    page.pubsub.subscribe_topic("telegram_password_required", lambda _: show_password_dialog())
-    print("Подписка на события Telegram pubsub создана в settings_page.")
-
+def create_settings_view(settings: dict, logic_manager=None):
+    """
+    Создает и возвращает view для страницы настроек с полной интеграцией логики ботов.
+    """
+    
+    # Загружаем актуальные настройки из LogicManager
+    if logic_manager and hasattr(logic_manager, 'settings') and logic_manager.settings:
+        settings = logic_manager.settings
+    
     # Определяем режим работы MT5
     mt5_mode = "flask"  # По умолчанию Flask API для macOS
     if logic_manager and logic_manager.mt5:
         mt5_mode = logic_manager.mt5.mode
-
+    
     # ----- ЭЛЕМЕНТЫ УПРАВЛЕНИЯ -----
+    
     # Telegram
     api_id_input = ft.TextField(label="Telegram API ID", value=settings.get("telegram", {}).get("api_id", ""), password=True)
     api_hash_input = ft.TextField(label="Telegram API Hash", value=settings.get("telegram", {}).get("api_hash", ""), password=True)
     phone_input = ft.TextField(label="Номер телефона", value=settings.get("telegram", {}).get("phone", ""), hint_text="+79001234567")
     session_file_input = ft.TextField(label="Session File Name", value=settings.get("telegram", {}).get("session_file", "userbot.session"))
-    delete_session_button = ft.ElevatedButton(
-        text="Удалить сессию Telegram", icon="delete", bgcolor="#f44336", color="white"
-    )
-    delete_session_button.on_click = on_delete_session # Привязываем обработчик для кнопки удаления сессии
-
+    
     # MT5 - Локальный режим (только для Windows)
     mt5_login_input = ft.TextField(label="MT5 Login", value=settings.get("mt5", {}).get("login", ""))
     mt5_password_input = ft.TextField(label="MT5 Password", value=settings.get("mt5", {}).get("password", ""), password=True)
     mt5_server_input = ft.TextField(label="MT5 Server", value=settings.get("mt5", {}).get("server", ""))
     mt5_path_input = ft.TextField(label="MT5 Path (for Windows)", value=settings.get("mt5", {}).get("path", ""))
-
+    
     # MT5 - Flask API режим (для macOS/Linux)
     mt5_flask_url_input = ft.TextField(label="MT5 Server URL", value=settings.get("mt5_server", {}).get("url", "http://10.211.55.3:5000"))
-
+    
     # Переключатель режима MT5
     mt5_mode_switch = ft.Switch(label="Локальный MT5 (Windows)", value=mt5_mode == "local")
-
+    
     # Показываем/скрываем поля в зависимости от режима
     def on_mt5_mode_change(e):
         is_local = mt5_mode_switch.value
@@ -130,8 +48,8 @@ def create_settings_view(page: ft.Page, settings: dict, logic_manager=None):
         mt5_flask_url_input.visible = not is_local
         
         # Обновляем страницу
-        if page:
-            page.update()
+        if hasattr(settings_view, 'page') and settings_view.page:
+            settings_view.page.update()
     
     mt5_mode_switch.on_change = on_mt5_mode_change
     
@@ -164,6 +82,7 @@ def create_settings_view(page: ft.Page, settings: dict, logic_manager=None):
     
     # Кнопки управления
     save_button = ft.ElevatedButton(text="Сохранить настройки", icon="save")
+    refresh_button = ft.ElevatedButton(text="Обновить настройки", icon="refresh", bgcolor="#2196F3")
     test_gpt_button = ft.ElevatedButton(text="Тест GPT", icon="psychology")
     test_mt5_button = ft.ElevatedButton(text="Тест MT5", icon="account_balance")
     create_session_button = ft.ElevatedButton(text="Создать сессию Telegram", icon="telegram", bgcolor="#0088cc", color="white")
@@ -185,6 +104,56 @@ def create_settings_view(page: ft.Page, settings: dict, logic_manager=None):
     
     # Лог создания сессии
     session_log = ft.Text("", size=12, color="#888888")
+    
+    # Статус сохранения настроек
+    save_status = ft.Text("", size=12, color="#888888")
+    
+    def refresh_settings():
+        """Обновляет поля настроек из базы данных"""
+        if logic_manager and hasattr(logic_manager, 'settings') and logic_manager.settings:
+            current_settings = logic_manager.settings
+            
+            # Обновляем Telegram настройки
+            telegram_settings = current_settings.get("telegram", {})
+            api_id_input.value = telegram_settings.get("api_id", "")
+            api_hash_input.value = telegram_settings.get("api_hash", "")
+            phone_input.value = telegram_settings.get("phone", "")
+            session_file_input.value = telegram_settings.get("session_file", "userbot.session")
+            
+            # Обновляем GPT настройки
+            gpt_settings = current_settings.get("gpt", {})
+            gpt_key_input.value = gpt_settings.get("api_key", "")
+            
+            # Обновляем MT5 настройки
+            mt5_settings = current_settings.get("mt5", {})
+            mt5_login_input.value = mt5_settings.get("login", "")
+            mt5_password_input.value = mt5_settings.get("password", "")
+            mt5_server_input.value = mt5_settings.get("server", "")
+            mt5_path_input.value = mt5_settings.get("path", "")
+            
+            mt5_server_settings = current_settings.get("mt5_server", {})
+            mt5_flask_url_input.value = mt5_server_settings.get("url", "http://10.211.55.3:5000")
+            
+            # Обновляем остальные настройки
+            signal_parser_settings = current_settings.get("signal_parser", {})
+            signal_parser_enabled.value = signal_parser_settings.get("enabled", True)
+            
+            ai_trader_settings = current_settings.get("ai_trader", {})
+            ai_trader_enabled.value = ai_trader_settings.get("enabled", False)
+            ai_lot_size.value = str(ai_trader_settings.get("lot_size", 0.01))
+            ai_live_trading.value = ai_trader_settings.get("live_trading", False)
+            
+            trading_settings = current_settings.get("trading", {})
+            trading_lot_size.value = str(trading_settings.get("lot_size", 0.01))
+            trading_max_risk.value = str(trading_settings.get("max_risk", 2))
+            
+            breakeven_settings = current_settings.get("breakeven", {})
+            breakeven_enabled.value = breakeven_settings.get("enabled", False)
+            breakeven_pips.value = str(breakeven_settings.get("pips", 20))
+            
+            # Обновляем интерфейс
+            if hasattr(settings_view, 'page') and settings_view.page:
+                settings_view.page.update()
     
     def update_statuses():
         """Обновляет статусы сервисов."""
@@ -214,46 +183,162 @@ def create_settings_view(page: ft.Page, settings: dict, logic_manager=None):
             start_ai_button.disabled = not status['bot_running'] or status['ai_trader_running']
             stop_ai_button.disabled = not status['ai_trader_running']
             
-            if page:
-                page.update()
+            if hasattr(settings_view, 'page') and settings_view.page:
+                settings_view.page.update()
+    
+    # Диалог для создания Telegram сессии
+    code_input = ft.TextField(
+        label="Код подтверждения",
+        hint_text="Введите код из SMS",
+        width=200,
+        autofocus=True
+    )
+    
+    password_2fa_input = ft.TextField(
+        label="Пароль двухфакторной аутентификации",
+        hint_text="Если включена 2FA",
+        password=True,
+        width=200
+    )
+    
+    session_dialog_content = ft.Column([
+        ft.Text("Создание Telegram сессии", size=18, weight=ft.FontWeight.BOLD),
+        ft.Container(height=10),
+        ft.Text("Код подтверждения отправлен на ваш телефон.", size=14),
+        ft.Container(height=20),
+        code_input,
+        ft.Container(height=10),
+        password_2fa_input,
+        ft.Container(height=20),
+        ft.Row([
+            ft.ElevatedButton(
+                text="Подтвердить",
+                bgcolor="#4CAF50",
+                color="white",
+                on_click=lambda e: confirm_telegram_code(e)
+            ),
+            ft.ElevatedButton(
+                text="Отмена",
+                bgcolor="#f44336", 
+                color="white",
+                on_click=lambda e: close_session_dialog(e)
+            )
+        ], spacing=10)
+    ], spacing=10, width=400)
+    
+    session_dialog = ft.AlertDialog(
+        title=ft.Text("Telegram аутентификация"),
+        content=session_dialog_content,
+        modal=True
+    )
+    
+    def close_session_dialog(e):
+        """Закрывает диалог создания сессии"""
+        session_dialog.open = False
+        session_log.value = "❌ Создание сессии отменено"
+        session_log.color = "#f44336"
+        session_log.update()
+        if hasattr(settings_view, 'page') and settings_view.page:
+            settings_view.page.update()
+    
+    def confirm_telegram_code(e):
+        """Подтверждает код и завершает создание сессии"""
+        try:
+            code = (code_input.value or "").strip()
+            password_2fa = (password_2fa_input.value or "").strip()
+            
+            if not code:
+                session_log.value = "❌ Введите код подтверждения!"
+                session_log.color = "#f44336"
+                session_log.update()
+                return
+            
+            session_log.value = "🔐 Подтверждение кода..."
+            session_log.color = "#2196F3"
+            session_log.update()
+            
+            # Подтверждаем код через LogicManager
+            if logic_manager:
+                success = logic_manager.confirm_telegram_code(code, password_2fa)
+                if success:
+                    session_dialog.open = False
+                    session_log.value = "✅ Telegram сессия успешно создана!"
+                    session_log.color = "#4CAF50"
+                    update_statuses()
+                else:
+                    session_log.value = "❌ Неверный код или ошибка подтверждения"
+                    session_log.color = "#f44336"
+            else:
+                session_log.value = "❌ LogicManager недоступен"
+                session_log.color = "#f44336"
+            
+            session_log.update()
+            if hasattr(settings_view, 'page') and settings_view.page:
+                settings_view.page.update()
+                
+        except Exception as ex:
+            session_log.value = f"❌ Ошибка: {str(ex)}"
+            session_log.color = "#f44336"
+            session_log.update()
     
     def on_create_telegram_session(e):
-        """Инициирует создание новой Telegram сессии через LogicManager."""
+        """Создает новую Telegram сессию через интерактивный диалог."""
         try:
+            # Проверяем наличие необходимых данных
             api_id = (api_id_input.value or "").strip()
             api_hash = (api_hash_input.value or "").strip()
             phone = (phone_input.value or "").strip()
-            session_file = (session_file_input.value or "userbot.session").strip()
-
+            
             if not api_id or not api_hash or not phone:
                 session_log.value = "❌ Заполните API ID, API Hash и номер телефона!"
                 session_log.color = "#f44336"
                 session_log.update()
                 return
-
-            on_save_settings(None) # Сначала сохраняем настройки
-
-            session_log.value = "🔐 Запуск создания Telegram сессии..."
+            
+            # Сначала сохраняем настройки
+            on_save_settings(None)
+            
+            session_log.value = "📱 Отправка кода подтверждения..."
             session_log.color = "#2196F3"
             session_log.update()
-
-            if logic_manager and hasattr(logic_manager, 'start_telegram_authentication'):
-                logic_manager.start_telegram_authentication(api_id, api_hash, phone, session_file)
-                session_log.value = "✅ Процесс авторизации Telegram запущен."
-                session_log.color = "#4CAF50"
+            
+            # Отправляем код через LogicManager
+            if logic_manager:
+                success = logic_manager.init_telegram_session(api_id, api_hash, phone)
+                if success:
+                    # Очищаем поля ввода
+                    code_input.value = ""
+                    password_2fa_input.value = ""
+                    
+                    # Показываем диалог для ввода кода
+                    session_dialog.open = True
+                    session_log.value = "📱 Код отправлен! Введите его в появившемся окне."
+                    session_log.color = "#4CAF50"
+                    
+                    if hasattr(settings_view, 'page') and settings_view.page:
+                        settings_view.page.overlay.append(session_dialog)
+                        settings_view.page.update()
+                else:
+                    session_log.value = "❌ Ошибка отправки кода. Проверьте API данные."
+                    session_log.color = "#f44336"
             else:
-                session_log.value = "❌ LogicManager или метод start_telegram_authentication недоступен."
+                session_log.value = "❌ LogicManager недоступен"
                 session_log.color = "#f44336"
+            
             session_log.update()
-
+            
         except Exception as e:
-            session_log.value = f"❌ Ошибка при инициализации авторизации: {str(e)} "
+            session_log.value = f"❌ Ошибка: {str(e)}"
             session_log.color = "#f44336"
             session_log.update()
-
+    
     def on_save_settings(e):
         """Сохраняет настройки."""
         try:
+            save_status.value = "💾 Сохранение настроек..."
+            save_status.color = "#2196F3"
+            save_status.update()
+            
             # Определяем режим MT5
             is_local_mode = mt5_mode_switch.value
             
@@ -301,13 +386,25 @@ def create_settings_view(page: ft.Page, settings: dict, logic_manager=None):
             if logic_manager:
                 success = logic_manager.update_settings(new_settings)
                 if success:
+                    save_status.value = "✅ Настройки успешно сохранены!"
+                    save_status.color = "#4CAF50"
                     print("Настройки сохранены!")
+                    refresh_settings() # Обновляем настройки после сохранения
                 else:
+                    save_status.value = "❌ Ошибка сохранения настроек"
+                    save_status.color = "#f44336"
                     print("Ошибка сохранения настроек!")
+            else:
+                save_status.value = "❌ LogicManager недоступен"
+                save_status.color = "#f44336"
             
+            save_status.update()
             update_statuses()
             
         except Exception as e:
+            save_status.value = f"❌ Ошибка: {str(e)}"
+            save_status.color = "#f44336"
+            save_status.update()
             print(f"Error saving settings: {e}")
     
     def on_test_gpt(e):
@@ -331,8 +428,7 @@ def create_settings_view(page: ft.Page, settings: dict, logic_manager=None):
                 mt5_status.color = "#4CAF50"
             else:
                 mt5_status.value = "MT5: ОШИБКА"
-                mt5_status.color = "#f44336"
-            mt5_status.update()
+                mt5_status.color = "#f44336"tatus.update()
     
     def on_start_bot(e):
         """Запускает бота."""
@@ -358,6 +454,7 @@ def create_settings_view(page: ft.Page, settings: dict, logic_manager=None):
     
     # Привязываем обработчики событий
     save_button.on_click = on_save_settings
+    refresh_button.on_click = lambda e: refresh_settings()
     test_gpt_button.on_click = on_test_gpt
     test_mt5_button.on_click = on_test_mt5
     create_session_button.on_click = on_create_telegram_session
@@ -365,6 +462,10 @@ def create_settings_view(page: ft.Page, settings: dict, logic_manager=None):
     stop_bot_button.on_click = on_stop_bot
     start_ai_button.on_click = on_start_ai
     stop_ai_button.on_click = on_stop_ai
+    
+    # Инициализируем настройки и статусы при создании
+    refresh_settings()
+    update_statuses()
     
     # Создаем интерфейс
     settings_view = ft.Container(
@@ -393,9 +494,6 @@ def create_settings_view(page: ft.Page, settings: dict, logic_manager=None):
             ),
             
             ft.Container(height=16),
-            
-            # Кнопка удаления сессии Telegram
-            delete_session_button,
             
             # Секция Telegram
             ft.Container(
@@ -472,7 +570,8 @@ def create_settings_view(page: ft.Page, settings: dict, logic_manager=None):
                 content=ft.Column([
                     ft.Text("Управление", size=16, weight=ft.FontWeight.BOLD, color="#ffffff"),
                     ft.Container(height=16),
-                    ft.Row([save_button, test_mt5_button], spacing=12),
+                    ft.Row([save_button, refresh_button, test_mt5_button], spacing=12),
+                    save_status,
                     ft.Container(height=12),
                     ft.Row([start_bot_button, stop_bot_button], spacing=12),
                     ft.Container(height=12),
@@ -496,18 +595,14 @@ def create_settings_view(page: ft.Page, settings: dict, logic_manager=None):
                     db_status,
                     ft.Container(height=12),
                     stats_text,
-                ], spacing=12)
+                ], spacing=8)
             ),
             
         ], spacing=0, scroll=ft.ScrollMode.AUTO)
     )
     
-    # Обновляем статусы при создании
-    update_statuses()
-
-    # Инициализация модальных окон, чтобы они были привязаны к странице
-    # Это должно быть в самом конце функции create_settings_view
-    page.overlay.append(code_dialog)
-    page.overlay.append(password_dialog)
-
-    return settings_view # Return the main view content 
+    return settings_view, [api_id_input, api_hash_input, phone_input, session_file_input,
+                          mt5_login_input, mt5_password_input, mt5_server_input, mt5_path_input,
+                          mt5_flask_url_input, mt5_mode_switch, gpt_key_input, signal_parser_enabled,
+                          ai_trader_enabled, ai_lot_size, ai_live_trading, trading_lot_size,
+                          trading_max_risk, breakeven_enabled, breakeven_pips] 

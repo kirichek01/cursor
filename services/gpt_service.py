@@ -5,7 +5,7 @@ import re
 class GptService:
     """
     Handles all interactions with the Google Gemini API.
-    This version can parse trade modification commands.
+    This version can parse trade modification commands with context awareness.
     """
     def __init__(self, api_key):
         if not api_key:
@@ -21,29 +21,47 @@ class GptService:
             self.model = None
 
         self.system_prompt = """
-You are an expert financial analyst. Your task is to parse trading messages into a structured JSON format. Return ONLY the JSON.
+You are an expert financial analyst specializing in parsing GOLDHUNTER trading signals. Your task is to parse trading messages into a structured JSON format. Return ONLY the JSON.
 
-**Analysis Rules:**
+**GOLDHUNTER Signal Analysis Rules:**
 
-1.  **Action Identification (Highest Priority):**
-    * **Cancellation:** Does the message cancel a trade? Keywords: "cancel", "close", "отмена", "закрыть", "not valid". If yes, set `is_cancellation: true` and all other fields to null/empty.
-    * **Modification:** Does the message modify an existing trade? Keywords: "move sl", "new tp", "передвинуть стоп", "новый тейк". If yes, set `is_modification: true` and parse ONLY the new SL/TP values.
-    * **New Signal:** If it's not a cancellation or modification, treat it as a new signal.
+1. **Context Awareness (Highest Priority):**
+   - **Reply Messages:** If message is a reply, analyze the context of the original message
+   - **Specific Ticket Targeting:** "Cancel TP1" means cancel only the first take profit, not all orders
+   - **Partial Modifications:** "Move SL to 2340" modifies only the specific order being replied to
+   - **Hold Commands:** "Держать", "Hold", "Keep" means don't close, continue monitoring
 
-2.  **Field Extraction:**
-    * `symbol`: The instrument (e.g., BTCUSD, GOLD).
-    * `order_type`: `BUY`, `SELL`, `BUY_LIMIT`, `SELL_LIMIT`.
-    * `entry_price`: The entry price.
-    * `stop_loss`, `take_profits`: List of SL/TP values.
-    * `is_cancellation`: `true` or `false`.
-    * `is_modification`: `true` or `false`.
+2. **Action Identification:**
+   - **Cancellation:** "cancel", "close", "отмена", "закрыть", "not valid"
+   - **Modification:** "move sl", "new tp", "передвинуть стоп", "новый тейк"
+   - **Hold Command:** "держать", "hold", "keep", "продолжаем"
+   - **New Signal:** Full entry with SL/TP
+
+3. **Multiple Orders Support:**
+   - **TP1, TP2, TP3:** Each take profit is a separate order with unique ticket
+   - **Partial Close:** "Close 50% at TP1" closes only specific portion
+   - **Selective Cancellation:** "Cancel TP2" cancels only second take profit
+   - **Trailing Stop:** "Move SL to breakeven" moves stop loss to entry price
+
+4. **Field Extraction:**
+   - `symbol`: The instrument (XAUUSD, EURUSD, GBPUSD, etc.)
+   - `order_type`: `BUY`, `SELL`, `BUY_LIMIT`, `SELL_LIMIT`
+   - `entry_price`: The entry price from "at PRICE"
+   - `stop_loss`: The stop loss from "SL: PRICE"
+   - `take_profits`: Array of TP values [TP1, TP2, TP3]
+   - `is_cancellation`: `true` for cancellation commands
+   - `is_modification`: `true` for modification commands
+   - `is_hold_command`: `true` for hold/keep commands
+   - `target_ticket`: Specific ticket to modify (from context)
+   - `partial_close_percent`: Percentage to close (e.g., 50)
 
 **Examples:**
 
-* **New Full Signal:** "Buy BTCUSD now, SL 67000, TP 69500" -> `{"symbol": "BTCUSD", "order_type": "BUY", "entry_price": null, "stop_loss": 67000.0, "take_profits": [69500.0], "is_cancellation": false, "is_modification": false}`
-* **New Partial (Entry):** "Buy zone GOLD 3374/72" -> `{"symbol": "GOLD", "order_type": "BUY_LIMIT", "entry_price": 3373.0, "stop_loss": null, "take_profits": [], "is_cancellation": false, "is_modification": false}`
-* **Modification (Reply):** "Move SL to 3370" -> `{"symbol": null, "order_type": null, "entry_price": null, "stop_loss": 3370.0, "take_profits": [], "is_cancellation": false, "is_modification": true}`
-* **Cancellation (Reply):** "Cancel" -> `{"symbol": null, "order_type": null, "entry_price": null, "stop_loss": null, "take_profits": [], "is_cancellation": true, "is_modification": false}`
+* **New Signal:** "BUY XAUUSD at 2345.50, SL: 2340.00, TP1: 2350.00, TP2: 2355.00"
+* **Modification (Reply):** "Move SL to 2342.00" -> `{"is_modification": true, "stop_loss": 2342.00}`
+* **Selective Cancellation:** "Cancel TP2" -> `{"is_cancellation": true, "target_ticket": "TP2"}`
+* **Hold Command:** "Держать позицию" -> `{"is_hold_command": true}`
+* **Partial Close:** "Close 50% at TP1" -> `{"is_modification": true, "partial_close_percent": 50, "target_ticket": "TP1"}`
 
 Now, analyze the following message:
 """
@@ -60,11 +78,18 @@ Now, analyze the following message:
         except Exception:
             return False
 
-    def parse_signal(self, message_text):
+    def parse_signal(self, message_text, context_message=None):
         if not message_text or not self.model:
             return None
         
-        full_prompt = self.system_prompt + "\n\nHere is the message to parse:\n" + message_text
+        # Добавляем контекст, если это reply сообщение
+        context_info = ""
+        if context_message:
+            context_info = f"\n\n**Context (Original Message):**\n{context_message}\n\n**Reply Message:**\n{message_text}"
+        else:
+            context_info = f"\n\nHere is the message to parse:\n{message_text}"
+        
+        full_prompt = self.system_prompt + context_info
         try:
             response = self.model.generate_content(full_prompt)
             json_response_str = response.text.strip()
@@ -81,11 +106,18 @@ Now, analyze the following message:
                     raise json.JSONDecodeError("No valid JSON object found in the response.", json_response_str, 0)
 
             parsed_data = json.loads(json_response_str)
-            # Ensure default values for modification/cancellation flags
+            
+            # Ensure default values for all flags
             if 'is_modification' not in parsed_data:
                 parsed_data['is_modification'] = False
             if 'is_cancellation' not in parsed_data:
                 parsed_data['is_cancellation'] = False
+            if 'is_hold_command' not in parsed_data:
+                parsed_data['is_hold_command'] = False
+            if 'target_ticket' not in parsed_data:
+                parsed_data['target_ticket'] = None
+            if 'partial_close_percent' not in parsed_data:
+                parsed_data['partial_close_percent'] = None
                 
             return parsed_data
         except Exception as e:

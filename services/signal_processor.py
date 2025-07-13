@@ -40,13 +40,23 @@ class SignalProcessor:
 
         print(f"\n--- [PROCESSOR] New message from '{message_data.get('channel_name')}' ---")
         
+        # Получаем контекст для reply сообщений
+        context_message = None
+        if message_data.get('is_reply'):
+            original_msg_id = message_data.get('reply_to_msg_id')
+            original_signal = self.db.get_signal_by_message_id(message_data.get('chat_id'), original_msg_id)
+            if original_signal:
+                context_message = original_signal.get('original_message', '')
+                print(f"--- [CONTEXT] Found original message: {context_message[:100]}... ---")
+        
         cancellation_keywords = ['cancel', 'отмена', 'close', 'закрыть', 'cancen', 'slose', 'not valid']
         if message_data.get('is_reply') and message_text.strip().lower() in cancellation_keywords:
             print(f"--- [PROCESSOR] Hardcoded cancellation command '{message_text}' detected. Bypassing GPT. ---")
             self.handle_cancellation(message_data)
             return
 
-        parsed_data = self.gpt.parse_signal(message_text)
+        # Парсим с контекстом
+        parsed_data = self.gpt.parse_signal(message_text, context_message)
         print(f"--- [GPT] Parsed Data: {parsed_data} ---")
         if not parsed_data:
             self.db.add_log('ERROR', "GPT parsing failed.")
@@ -90,8 +100,11 @@ class SignalProcessor:
              self.db.add_log('INFO', f"Message from {parsed_data['channel_name']} did not contain a symbol.")
              return
 
-        if parsed_data.get('is_cancellation'):
-            self.handle_cancellation(message_data)
+        # Обработка команд с учетом контекста
+        if parsed_data.get('is_hold_command'):
+            self.handle_hold_command(message_data)
+        elif parsed_data.get('is_cancellation'):
+            self.handle_cancellation(message_data, parsed_data)
         elif parsed_data.get('is_modification'):
             self.handle_modification(parsed_data, message_data)
         elif parsed_data.get('entry_price') and not parsed_data.get('stop_loss'):
@@ -152,22 +165,100 @@ class SignalProcessor:
             tickets = json.loads(tickets_json)
             new_sl = parsed_data.get('stop_loss')
             new_tp = parsed_data.get('take_profits')[0] if parsed_data.get('take_profits') else None
+            target_ticket = parsed_data.get('target_ticket')
+            partial_close_percent = parsed_data.get('partial_close_percent')
             
-            print(f"--- [PROCESSOR] Modifying tickets {tickets} for signal ID {original_signal['id']} with SL: {new_sl}, TP: {new_tp} ---")
-            for ticket in tickets:
-                success, msg = self.mt5.modify_position_sltp(ticket, new_sl, new_tp)
-                if success:
-                    self.db.add_log("SUCCESS", f"Ticket {ticket} modified successfully.")
-                else:
-                    self.db.add_log("ERROR", f"Failed to modify ticket {ticket}: {msg}")
+            print(f"--- [PROCESSOR] Modifying tickets {tickets} for signal ID {original_signal['id']} ---")
+            print(f"--- [PROCESSOR] New SL: {new_sl}, New TP: {new_tp}, Target: {target_ticket}, Partial: {partial_close_percent}% ---")
             
-            # Обновляем запись в БД новыми данными
-            updated_tps = [new_tp] if new_tp is not None else json.loads(original_signal['take_profits'])
-            updated_sl = new_sl if new_sl is not None else original_signal['stop_loss']
-            self.db.update_signal_with_trade_data(original_signal['id'], updated_sl, updated_tps, tickets, 'MODIFIED_ACTIVE')
-
+            if partial_close_percent and target_ticket:
+                # Частичное закрытие конкретного тикета
+                self._partial_close_specific_ticket(tickets, target_ticket, partial_close_percent, original_signal['id'])
+            elif target_ticket and len(tickets) > 1:
+                # Модификация конкретного тикета
+                self._modify_specific_ticket(tickets, target_ticket, new_sl, new_tp, original_signal['id'])
+            else:
+                # Модификация всех тикетов
+                self._modify_all_tickets(tickets, new_sl, new_tp, original_signal['id'])
+            
         except Exception as e:
             self.db.add_log("ERROR", f"Error processing modification for signal ID {original_signal['id']}: {e}")
+
+    def _partial_close_specific_ticket(self, tickets, target_ticket, percent, signal_id):
+        """Частично закрывает конкретный тикет."""
+        ticket_index = self._get_ticket_index(target_ticket)
+        
+        if ticket_index is not None and ticket_index < len(tickets):
+            specific_ticket = tickets[ticket_index]
+            success, msg = self.mt5.partial_close_position(specific_ticket, percent)
+            
+            if success:
+                self.db.add_log("SUCCESS", f"Partially closed {percent}% of ticket {specific_ticket} ({target_ticket}).")
+            else:
+                self.db.add_log("ERROR", f"Failed to partially close ticket {specific_ticket}: {msg}")
+        else:
+            self.db.add_log("WARNING", f"Could not find specific ticket for {target_ticket}")
+
+    def _modify_specific_ticket(self, tickets, target_ticket, new_sl, new_tp, signal_id):
+        """Модифицирует конкретный тикет."""
+        ticket_index = self._get_ticket_index(target_ticket)
+        
+        if ticket_index is not None and ticket_index < len(tickets):
+            specific_ticket = tickets[ticket_index]
+            success, msg = self.mt5.modify_position_sltp(specific_ticket, new_sl, new_tp)
+            
+            if success:
+                self.db.add_log("SUCCESS", f"Modified specific ticket {specific_ticket} ({target_ticket}) successfully.")
+                # Обновляем данные в БД
+                self._update_signal_with_modification(signal_id, new_sl, new_tp, tickets, target_ticket)
+            else:
+                self.db.add_log("ERROR", f"Failed to modify specific ticket {specific_ticket}: {msg}")
+        else:
+            self.db.add_log("WARNING", f"Could not find specific ticket for {target_ticket}")
+
+    def _modify_all_tickets(self, tickets, new_sl, new_tp, signal_id):
+        """Модифицирует все тикеты."""
+        for ticket in tickets:
+            success, msg = self.mt5.modify_position_sltp(ticket, new_sl, new_tp)
+            if success:
+                self.db.add_log("SUCCESS", f"Ticket {ticket} modified successfully.")
+            else:
+                self.db.add_log("ERROR", f"Failed to modify ticket {ticket}: {msg}")
+        
+        # Обновляем запись в БД новыми данными
+        original_signal = self.db.get_signal_by_id(signal_id)
+        if original_signal:
+            updated_tps = [new_tp] if new_tp is not None else json.loads(original_signal['take_profits'])
+            updated_sl = new_sl if new_sl is not None else original_signal['stop_loss']
+            self.db.update_signal_with_trade_data(signal_id, updated_sl, updated_tps, tickets, 'MODIFIED_ACTIVE')
+
+    def _get_ticket_index(self, target_ticket):
+        """Определяет индекс тикета на основе target_ticket."""
+        if target_ticket == "TP1":
+            return 0
+        elif target_ticket == "TP2":
+            return 1
+        elif target_ticket == "TP3":
+            return 2
+        return None
+
+    def _update_signal_with_modification(self, signal_id, new_sl, new_tp, tickets, target_ticket):
+        """Обновляет сигнал с учетом модификации конкретного тикета."""
+        # Получаем текущие данные сигнала
+        original_signal = self.db.get_signal_by_id(signal_id)
+        if not original_signal:
+            return
+        
+        # Обновляем только соответствующий TP
+        current_tps = json.loads(original_signal['take_profits'])
+        ticket_index = self._get_ticket_index(target_ticket)
+        
+        if ticket_index is not None and ticket_index < len(current_tps):
+            if new_tp is not None:
+                current_tps[ticket_index] = new_tp
+        
+        updated_sl = new_sl if new_sl is not None else original_signal['stop_loss']
+        self.db.update_signal_with_trade_data(signal_id, updated_sl, current_tps, tickets, 'MODIFIED_ACTIVE')
 
     def _execute_trade(self, signal_id, trade_data):
         if not trade_data.get('take_profits') and not trade_data.get('stop_loss'):
@@ -194,7 +285,26 @@ class SignalProcessor:
             self.db.add_log('ERROR', error_log)
             self.db.update_signal_status(signal_id, 'ERROR_MT5')
 
-    def handle_cancellation(self, message_data):
+    def handle_hold_command(self, message_data):
+        """Обрабатывает команды 'держать' позицию."""
+        log_msg = "--- [PROCESSOR] Hold command received. Keeping position open... ---"
+        print(log_msg)
+        self.db.add_log("INFO", log_msg)
+
+        if not message_data.get('is_reply'):
+            self.db.add_log("WARNING", "Hold command received, but it was not a reply.")
+            return
+
+        original_signal = self.db.get_signal_by_message_id(message_data.get('chat_id'), message_data.get('reply_to_msg_id'))
+        if not original_signal:
+            self.db.add_log("WARNING", f"Could not find original signal for hold command.")
+            return
+        
+        # Обновляем статус сигнала на HOLD
+        self.db.update_signal_status(original_signal['id'], 'HOLD')
+        self.db.add_log("SUCCESS", f"Signal ID {original_signal['id']} set to HOLD status.")
+
+    def handle_cancellation(self, message_data, parsed_data=None):
         log_msg = "--- [PROCESSOR] Cancellation command received. Trying to find original signal... ---"
         print(log_msg)
         self.db.add_log("INFO", log_msg)
@@ -215,21 +325,61 @@ class SignalProcessor:
         
         try:
             tickets = json.loads(tickets_json)
-            print(f"--- [PROCESSOR] Cancelling tickets {tickets} for signal ID {original_signal['id']} ---")
             
-            for ticket in tickets:
-                # Try to close position first
-                success, msg = self.mt5.close_position_by_ticket(ticket)
-                if not success:
-                    # If closing fails, try to cancel pending order
-                    success, msg = self.mt5.cancel_pending_order(ticket)
-                
-                if success:
-                    self.db.add_log("SUCCESS", f"Ticket {ticket} cancelled successfully.")
-                else:
-                    self.db.add_log("ERROR", f"Failed to cancel ticket {ticket}: {msg}")
+            # Проверяем, есть ли целевой тикет для селективной отмены
+            target_ticket = parsed_data.get('target_ticket') if parsed_data else None
             
-            self.db.update_signal_status(original_signal['id'], 'CANCELLED')
+            if target_ticket and len(tickets) > 1:
+                # Селективная отмена конкретного тикета
+                print(f"--- [PROCESSOR] Selective cancellation for {target_ticket} ---")
+                self._cancel_specific_ticket(tickets, target_ticket, original_signal['id'])
+            else:
+                # Отмена всех тикетов
+                print(f"--- [PROCESSOR] Cancelling all tickets {tickets} for signal ID {original_signal['id']} ---")
+                self._cancel_all_tickets(tickets, original_signal['id'])
             
         except Exception as e:
-            self.db.add_log("ERROR", f"Error processing cancellation for signal ID {original_signal['id']}: {e}") 
+            self.db.add_log("ERROR", f"Error processing cancellation for signal ID {original_signal['id']}: {e}")
+
+    def _cancel_specific_ticket(self, tickets, target_ticket, signal_id):
+        """Отменяет конкретный тикет на основе контекста."""
+        # Определяем индекс тикета на основе target_ticket
+        ticket_index = None
+        if target_ticket == "TP1":
+            ticket_index = 0
+        elif target_ticket == "TP2":
+            ticket_index = 1
+        elif target_ticket == "TP3":
+            ticket_index = 2
+        
+        if ticket_index is not None and ticket_index < len(tickets):
+            specific_ticket = tickets[ticket_index]
+            success, msg = self.mt5.close_position_by_ticket(specific_ticket)
+            if not success:
+                success, msg = self.mt5.cancel_pending_order(specific_ticket)
+            
+            if success:
+                self.db.add_log("SUCCESS", f"Specific ticket {specific_ticket} ({target_ticket}) cancelled successfully.")
+                # Удаляем тикет из списка и обновляем сигнал
+                tickets.pop(ticket_index)
+                self.db.update_signal_with_trade_data(signal_id, None, None, tickets, 'PARTIALLY_CANCELLED')
+            else:
+                self.db.add_log("ERROR", f"Failed to cancel specific ticket {specific_ticket}: {msg}")
+        else:
+            self.db.add_log("WARNING", f"Could not find specific ticket for {target_ticket}")
+
+    def _cancel_all_tickets(self, tickets, signal_id):
+        """Отменяет все тикеты."""
+        for ticket in tickets:
+            # Try to close position first
+            success, msg = self.mt5.close_position_by_ticket(ticket)
+            if not success:
+                # If closing fails, try to cancel pending order
+                success, msg = self.mt5.cancel_pending_order(ticket)
+            
+            if success:
+                self.db.add_log("SUCCESS", f"Ticket {ticket} cancelled successfully.")
+            else:
+                self.db.add_log("ERROR", f"Failed to cancel ticket {ticket}: {msg}")
+        
+        self.db.update_signal_status(signal_id, 'CANCELLED') 

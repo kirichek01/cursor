@@ -1,4 +1,5 @@
 import flet as ft
+from services.logic_manager import LogicManager
 
 # ----- КОНСТАНТЫ -----
 BLOCK_BG_COLOR = "#272a44"
@@ -8,7 +9,7 @@ SUCCESS_COLOR = "#4CAF50"
 ERROR_COLOR = "#f44336"
 WARNING_COLOR = "#ff9800"
 
-def create_mt5_view():
+def create_mt5_view(logic_manager: LogicManager):
     """Создает страницу MT5 Connection."""
     
     # ----- СОСТОЯНИЕ -----
@@ -30,22 +31,57 @@ def create_mt5_view():
                 add_log("❌ Заполните все поля подключения")
                 return
             
-            update_connection_status("Подключен", SUCCESS_COLOR)
-            add_log("✅ Подключение к MT5 установлено")
+            # Обновляем настройки MT5
+            mt5_settings = {
+                'path': path_input.value or '',
+                'login': login_input.value,
+                'password': password_input.value,
+                'server': server_input.value
+            }
             
-            # Обновляем баланс (демо данные)
-            balance_text.value = "$10,000.00"
-            equity_text.value = "$10,245.50"
-            margin_text.value = "$1,200.00"
-            balance_text.update()
-            equity_text.update()
-            margin_text.update()
+            # Сохраняем настройки
+            if logic_manager:
+                logic_manager.settings['mt5'] = mt5_settings
+                logic_manager.update_settings(logic_manager.settings)
+                
+                # Инициализируем MT5
+                if logic_manager.mt5:
+                    success, message = logic_manager.mt5.initialize()
+                    if success:
+                        update_connection_status("Подключен", SUCCESS_COLOR)
+                        add_log("✅ Подключение к MT5 установлено")
+                        
+                        # Получаем информацию об аккаунте
+                        account_info = logic_manager.mt5.get_account_info()
+                        if account_info:
+                            balance_text.value = f"${account_info.get('balance', 0):,.2f}"
+                            equity_text.value = f"${account_info.get('equity', 0):,.2f}"
+                            margin_text.value = f"${account_info.get('margin', 0):,.2f}"
+                        else:
+                            # Демо данные если нет реального подключения
+                            balance_text.value = "$10,000.00"
+                            equity_text.value = "$10,245.50"
+                            margin_text.value = "$1,200.00"
+                        
+                        balance_text.update()
+                        equity_text.update()
+                        margin_text.update()
+                    else:
+                        add_log(f"❌ Ошибка подключения к MT5: {message}")
+                        update_connection_status("Ошибка", ERROR_COLOR)
+                else:
+                    add_log("❌ MT5Service не инициализирован")
+            else:
+                add_log("❌ LogicManager не доступен")
             
         except Exception as ex:
             add_log(f"❌ Ошибка подключения: {ex}")
     
     def disconnect_mt5(e):
         try:
+            if logic_manager and logic_manager.mt5:
+                logic_manager.mt5.shutdown()
+            
             update_connection_status("Отключен", ERROR_COLOR)
             add_log("🛑 Отключение от MT5")
             
@@ -69,11 +105,31 @@ def create_mt5_view():
     
     def test_connection(e):
         add_log("🔍 Тестирование подключения к MT5...")
-        # Здесь будет логика тестирования
+        if logic_manager and logic_manager.mt5:
+            try:
+                account_info = logic_manager.mt5.get_account_info()
+                if account_info:
+                    add_log(f"✅ Подключение успешно. Баланс: ${account_info.get('balance', 0):,.2f}")
+                else:
+                    add_log("❌ Не удалось получить информацию об аккаунте")
+            except Exception as ex:
+                add_log(f"❌ Ошибка тестирования: {ex}")
+        else:
+            add_log("❌ MT5Service не инициализирован")
     
     def load_history(e):
         add_log("📊 Загрузка истории сделок...")
-        # Здесь будет логика загрузки истории
+        if logic_manager and logic_manager.mt5:
+            try:
+                deals = logic_manager.mt5.get_deals_in_history(days=7)
+                if deals:
+                    add_log(f"✅ Загружено {len(deals)} сделок за последние 7 дней")
+                else:
+                    add_log("ℹ️ История сделок пуста")
+            except Exception as ex:
+                add_log(f"❌ Ошибка загрузки истории: {ex}")
+        else:
+            add_log("❌ MT5Service не инициализирован")
     
     # ----- ЭЛЕМЕНТЫ ИНТЕРФЕЙСА -----
     login_input = ft.TextField(

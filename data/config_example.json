@@ -1,0 +1,28 @@
+{
+    "telegram": {
+        "api_id": "",
+        "api_hash": "",
+        "phone": "",
+        "session_name": "userbot"
+    },
+    "gpt": {},
+    "mt5": {
+        "path": "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
+        "login": "YOUR_LOGIN_HERE",
+        "password": "YOUR_PASSWORD_HERE",
+        "server": "YOUR_BROKER_SERVER"
+    },
+    "mt5_server": {
+        "url": "http://10.211.55.3:5000"
+    },
+    "trading": {},
+    "breakeven": {},
+    "signal_parser": {
+        "enabled": true
+    },
+    "ai_trader": {
+        "enabled": false,
+        "lot_size": 0.01,
+        "live_trading": false
+    }
+} 

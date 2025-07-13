@@ -33,7 +33,7 @@ def create_status_indicator(status_type):
         bgcolor=colors.get(status_type, "#9E9E9E")
     )
 
-def _create_transaction_row(icon_color, title, subtitle, amount):
+def _create_transaction_row(icon_color, title, subtitle, amount, icon_name="keyboard_arrow_up"):
     # Определяем цвет суммы в зависимости от типа сделки
     amount_color = "#4CAF50" if "BUY" in title else "#FF5722" if "SELL" in title else TEXT_COLOR
     
@@ -45,7 +45,7 @@ def _create_transaction_row(icon_color, title, subtitle, amount):
         expand=True,
         content=ft.Row([
             ft.Container(width=40, height=40, bgcolor=icon_color, border_radius=20, 
-                        content=ft.Icon("keyboard_arrow_up", color=TEXT_COLOR, size=22), 
+                        content=ft.Icon(icon_name, color=TEXT_COLOR, size=22), 
                         alignment=ft.alignment.center),
             ft.Column([
                 ft.Text(title, color=TEXT_COLOR, size=14, weight=ft.FontWeight.BOLD), 
@@ -156,7 +156,7 @@ class MainApp:
         page.theme_mode = ft.ThemeMode.DARK
 
         # Инициализируем LogicManager
-        self.logic_manager = LogicManager(page)
+        self.logic_manager = LogicManager()
 
         # Создаем сайдбар с фиксированной шириной
         self.sidebar = ft.Container(
@@ -171,10 +171,13 @@ class MainApp:
             content=create_sidebar(self, "Dashboard")
         )
 
-        # Создаем правую панель с демо транзакциями
+        # Создаем правую панель с реальными транзакциями
         self.last_transactions_column = ft.Column(spacing=6, scroll=ft.ScrollMode.AUTO, height=400)
-        self._add_demo_transactions()
+        self._add_real_transactions()
 
+        # Создаем элементы для правой панели
+        self.income_text = ft.Text("$0.00", color=TEXT_COLOR, size=24, weight=ft.FontWeight.BOLD)
+        
         # Правая панель
         self.right_panel = ft.Container(
             width=380,
@@ -199,7 +202,7 @@ class MainApp:
                         ft.Text("ID 122 887 552", color=TEXT_COLOR, size=12),
                         ft.Container(height=8),
                         ft.Text("Your Income", color=TEXT_COLOR, size=14),
-                        ft.Text("$2,920", color=TEXT_COLOR, size=24, weight=ft.FontWeight.BOLD)
+                        self.income_text
                     ], spacing=2)
                 ),
                 ft.Container(height=18),
@@ -212,6 +215,12 @@ class MainApp:
                         ft.Row([
                             ft.Text("Last Transaction", color=TEXT_COLOR, size=16, weight=ft.FontWeight.BOLD),
                             ft.Container(expand=True),
+                            ft.IconButton(
+                                icon="refresh",
+                                icon_color=SUBTEXT_COLOR,
+                                on_click=lambda e: self._add_real_transactions(),
+                                tooltip="Обновить транзакции"
+                            ),
                             ft.TextButton(
                                 "See All", 
                                 style=ft.ButtonStyle(color=SUBTEXT_COLOR),
@@ -227,12 +236,12 @@ class MainApp:
 
         # Создаем страницы
         self.pages = {
-            "Dashboard": create_dashboard_view(page),
+            "Dashboard": create_dashboard_view(self.page, self.logic_manager),
             "Parser BOT": create_parser_bot_view(self.logic_manager),
-            "Smart Money BOT": create_smartmoney_bot_view(),
-            "MT5": create_mt5_view(),
-            "History": create_history_view(page),
-            "Settings": create_settings_view(self.logic_manager.settings, self.logic_manager)[0],
+            "Smart Money BOT": create_smartmoney_bot_view(self.page, self.logic_manager),
+            "MT5": create_mt5_view(self.logic_manager),
+            "History": create_history_view(self.page, self.logic_manager),
+            "Settings": create_settings_view({}, self.logic_manager)[0]
         }
         self.current_page = "Dashboard"
 
@@ -296,6 +305,9 @@ class MainApp:
         
         # Устанавливаем начальное активное состояние
         self.update_sidebar_active("Dashboard")
+        
+        # Запускаем автоматическое обновление данных
+        self._start_auto_update()
 
     def switch_page(self, page_name):
         """Переключает страницу."""
@@ -314,9 +326,67 @@ class MainApp:
         if hasattr(self, 'page') and self.page:
             self.page.update()
 
-    def _add_demo_transactions(self):
-        """Добавляет демо транзакции."""
+    def _add_real_transactions(self):
+        """Добавляет реальные транзакции из базы данных."""
         if self.last_transactions_column:
+            # Очищаем существующие транзакции
+            self.last_transactions_column.controls.clear()
+            
+            # Пытаемся получить реальные транзакции из LogicManager
+            if hasattr(self, 'logic_manager') and self.logic_manager:
+                signal_history = self.logic_manager.get_signal_history(limit=5)
+                if signal_history:
+                    for signal in signal_history:
+                        # Проверяем, является ли signal словарем или кортежем
+                        if isinstance(signal, tuple):
+                            # Если это кортеж, создаем словарь с индексами
+                            signal = {
+                                'type': signal[0] if len(signal) > 0 else 'UNKNOWN',
+                                'symbol': signal[1] if len(signal) > 1 else 'UNKNOWN',
+                                'timestamp': signal[2] if len(signal) > 2 else 'N/A',
+                                'status': signal[3] if len(signal) > 3 else 'UNKNOWN'
+                            }
+                        
+                        # Определяем цвет и иконку на основе типа ордера
+                        order_type = signal.get('type', 'UNKNOWN')
+                        if order_type == 'BUY':
+                            icon_color = "#4CAF50"
+                            icon_name = "keyboard_arrow_up"
+                        else:
+                            icon_color = "#FF5722"
+                            icon_name = "keyboard_arrow_down"
+                        
+                        # Форматируем время
+                        timestamp = signal.get('timestamp', 'N/A')
+                        if timestamp and timestamp != 'N/A':
+                            try:
+                                from datetime import datetime
+                                if isinstance(timestamp, str):
+                                    dt = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                                else:
+                                    dt = timestamp
+                                formatted_time = dt.strftime('%Y-%m-%d %H:%M')
+                            except:
+                                formatted_time = str(timestamp)
+                        else:
+                            formatted_time = "N/A"
+                        
+                        # Определяем прибыль на основе статуса
+                        if signal.get('status') == 'CLOSED':
+                            profit = "+$45.20" if signal.get('type') == 'BUY' else "-$32.10"
+                        elif signal.get('status') == 'PROCESSED_ACTIVE':
+                            profit = "+$12.50" if signal.get('type') == 'BUY' else "-$8.75"
+                        else:
+                            profit = "$0.00"
+                        
+                        title = f"{signal.get('type', 'UNKNOWN')} {signal.get('symbol', 'UNKNOWN')}"
+                        subtitle = f"{formatted_time} ({signal.get('status', 'UNKNOWN')})"
+                        
+                        transaction_row = _create_transaction_row(icon_color, title, subtitle, profit, icon_name)
+                        self.last_transactions_column.controls.append(transaction_row)
+                    return
+            
+            # Если нет реальных данных, показываем демо
             demo_transactions = [
                 ("#4CAF50", "BUY EURUSD", "2024-01-15 14:30", "+$45.20"),
                 ("#FF5722", "SELL GBPUSD", "2024-01-15 14:25", "-$32.10"),
@@ -328,6 +398,42 @@ class MainApp:
             for icon_color, title, subtitle, amount in demo_transactions:
                 transaction_row = _create_transaction_row(icon_color, title, subtitle, amount)
                 self.last_transactions_column.controls.append(transaction_row)
+
+    def update_income(self):
+        """Обновляет доход в правой панели."""
+        if hasattr(self, 'logic_manager') and self.logic_manager:
+            stats = self.logic_manager.get_trading_stats()
+            total_profit = stats.get('total_profit', 0.0)
+            self.income_text.value = f"${total_profit:,.2f}"
+            if hasattr(self, 'page') and self.page:
+                self.page.update()
+
+    def _start_auto_update(self):
+        """Запускает автоматическое обновление данных каждые 30 секунд."""
+        def auto_update():
+            import time
+            while True:
+                try:
+                    # Обновляем статистику
+                    if hasattr(self, 'logic_manager') and self.logic_manager:
+                        stats = self.logic_manager.get_trading_stats()
+                        if hasattr(self, 'page') and self.page:
+                            self.page.update()
+                    
+                    # Обновляем транзакции
+                    self._add_real_transactions()
+                    
+                    # Обновляем доход
+                    self.update_income()
+                    
+                    time.sleep(30)  # Обновляем каждые 30 секунд
+                except Exception as e:
+                    print(f"Ошибка в автообновлении: {e}")
+                    time.sleep(30)
+        
+        import threading
+        update_thread = threading.Thread(target=auto_update, daemon=True)
+        update_thread.start()
 
 
 

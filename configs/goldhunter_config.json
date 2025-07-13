@@ -1,0 +1,34 @@
+{
+  "channel_id": "GOLDHUNTER",
+  "channel_name": "GOLDHUNTER | PAUL 🦁 FX & CRYPTO 🌍",
+  "active": true,
+  "default_symbol": "XAUUSD",
+  "weekend_symbol": "BTCUSD",
+  "signal_patterns": {
+    "entry": "BUY|SELL\\s+([A-Z]+)\\s+at\\s+([0-9.]+)",
+    "stop_loss": "SL:\\s*([0-9.]+)",
+    "take_profit": "TP([0-9]*):\\s*([0-9.]+)",
+    "modification": "Move\\s+SL\\s+to\\s+([0-9.]+)|New\\s+TP([0-9]*):\\s*([0-9.]+)",
+    "cancellation": "cancel|close|отмена|закрыть|not valid"
+  },
+  "trading_logic": {
+    "support_multiple_tp": true,
+    "support_trailing_stop": true,
+    "support_break_even": true,
+    "support_partial_close": true,
+    "auto_modify_on_reply": true
+  },
+  "risk_management": {
+    "default_lot_size": 0.01,
+    "max_risk_per_trade": 0.02,
+    "trailing_activation": 0.5,
+    "break_even_threshold": 0.3
+  },
+  "message_processing": {
+    "parse_entry_price": true,
+    "parse_stop_loss": true,
+    "parse_take_profits": true,
+    "handle_modifications": true,
+    "handle_cancellations": true
+  }
+} 

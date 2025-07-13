@@ -1,345 +1,467 @@
-import json
-import os
 import threading
+import time
 from datetime import datetime
+import json
 
-from .database_service import DatabaseService
-from .gpt_service import GptService
-from .mt5_service import MT5Service
-from .telegram_service import TelegramService
-from .signal_processor import SignalProcessor
-from .trade_manager_service import TradeManagerService
+# Импорты сервисов
+try:
+    from .mt5_service import MT5Service
+    MT5_AVAILABLE = True
+except ImportError:
+    MT5_AVAILABLE = False
+    print("⚠️ MT5Service недоступен")
+
+try:
+    from .telegram_service import TelegramService
+    TELEGRAM_AVAILABLE = True
+except ImportError:
+    TELEGRAM_AVAILABLE = False
+    print("⚠️ TelegramService недоступен")
+
+try:
+    from .gpt_service import GPTService
+    GPT_AVAILABLE = True
+except ImportError:
+    GPT_AVAILABLE = False
+    print("⚠️ GPTService недоступен")
+
+try:
+    from .signal_processor import SignalProcessor
+    SIGNAL_PROCESSOR_AVAILABLE = True
+except ImportError:
+    SIGNAL_PROCESSOR_AVAILABLE = False
+    print("⚠️ SignalProcessor недоступен")
+
+try:
+    from .trade_manager_service import TradeManagerService
+    TRADE_MANAGER_AVAILABLE = True
+except ImportError:
+    TRADE_MANAGER_AVAILABLE = False
+    print("⚠️ TradeManagerService недоступен")
+
+try:
+    from .database_service import DatabaseService
+    DATABASE_AVAILABLE = True
+except ImportError:
+    DATABASE_AVAILABLE = False
+    print("⚠️ DatabaseService недоступен")
+
+try:
+    from .smc_logic import SMCStrategy
+    SMC_AVAILABLE = True
+except ImportError:
+    SMC_AVAILABLE = False
+    print("⚠️ SMCStrategy недоступен")
 
 class LogicManager:
     """
-    Главный менеджер логики бота. Управляет всеми сервисами и их жизненным циклом.
-    Адаптирован для работы с Flet вместо Qt.
+    Центральный менеджер логики торговой системы
+    Интегрирует все сервисы и управляет их взаимодействием
     """
     
-    def __init__(self, page):
-        self.page = page
-        self.settings = self._load_config_file("data/config.json")
-        self.channels = self._load_config_file("data/channels.json", is_channels=True)
-        
-        # Состояние сервисов
-        self.is_bot_running = False
-        self.is_ai_trader_running = False
-        self.is_signal_parser_running = False
-        
-        # Сервисы
-        self.db = None
-        self.gpt = None
+    def __init__(self):
+        # Инициализация сервисов
         self.mt5 = None
         self.telegram = None
+        self.gpt = None
         self.signal_processor = None
         self.trade_manager = None
+        self.database = None
+        self.smc_strategy = None
         
-        # Потоки
-        self.telegram_thread = None
-        self.trade_manager_thread = None
-        self.ai_trader_thread = None
+        # Состояние системы
+        self.is_running = False
+        self.auto_update_thread = None
         
-        # Статистика
-        self.stats = {
-            'total_signals': 0,
-            'successful_trades': 0,
-            'failed_trades': 0,
-            'total_profit': 0.0,
-            'current_balance': 0.0
-        }
+        # Настройки (загружаем из базы или создаём пустой словарь)
+        self.settings = self._load_settings()
         
-        # Подписки на события
-        self._setup_pubsub_subscriptions()
+        # Инициализация сервисов
+        self._initialize_services()
 
-    def _load_config_file(self, path, is_channels=False):
-        """Загружает конфигурационный файл."""
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            if not os.path.exists(path):
-                default = {} if is_channels else {
-                    "telegram": {}, "gpt": {}, "mt5": {}, "trading": {}, "breakeven": {},
-                    "signal_parser": {"enabled": True},
-                    "ai_trader": {"enabled": False, "lot_size": 0.01, "live_trading": False}
-                }
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump(default, f, indent=4)
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Error loading config file {path}: {e}")
-            return {}
-
-    def _setup_pubsub_subscriptions(self):
-        """Настраивает подписки на события pubsub."""
-        try:
-            self.page.pubsub.subscribe("new_telegram_message")(self._handle_telegram_message)
-            self.page.pubsub.subscribe("telegram_status")(self._handle_telegram_status)
-            self.page.pubsub.subscribe("dialogs_fetched")(self._handle_dialogs_fetched)
-            self.page.pubsub.subscribe("trade_manager_log")(self._handle_trade_manager_log)
-            self.page.pubsub.subscribe("signal_processed")(self._handle_signal_processed)
-            self.page.pubsub.subscribe("trade_executed")(self._handle_trade_executed)
-        except Exception as e:
-            print(f"PubSub setup error: {e}")
-
-    def _handle_telegram_message(self, message_data):
-        """Обрабатывает новое сообщение из Telegram."""
-        if self.signal_processor:
-            self.signal_processor.process_new_message(message_data)
-
-    def _handle_telegram_status(self, status):
-        """Обрабатывает изменение статуса Telegram."""
-        print(f"--- [LOGIC MANAGER] Telegram status: {status} ---")
-        self._update_ui_status('telegram', status)
-
-    def _handle_dialogs_fetched(self, dialogs_list):
-        """Обрабатывает полученный список диалогов."""
-        print(f"--- [LOGIC MANAGER] Fetched {len(dialogs_list)} dialogs ---")
-        self._update_ui_status('dialogs_count', len(dialogs_list))
-
-    def _handle_trade_manager_log(self, log_data):
-        """Обрабатывает логи от Trade Manager."""
-        print(f"--- [TRADE MANAGER] {log_data['level']}: {log_data['message']} ---")
-        self._update_ui_status('trade_log', log_data)
-
-    def _handle_signal_processed(self, signal_data):
-        """Обрабатывает обработанный сигнал."""
-        self.stats['total_signals'] += 1
-        self._update_ui_status('signal_count', self.stats['total_signals'])
-
-    def _handle_trade_executed(self, trade_data):
-        """Обрабатывает выполненную сделку."""
-        if trade_data.get('success'):
-            self.stats['successful_trades'] += 1
-            self.stats['total_profit'] += trade_data.get('profit', 0)
-        else:
-            self.stats['failed_trades'] += 1
-        self._update_ui_status('trade_stats', self.stats)
-
-    def _update_ui_status(self, status_type, data):
-        """Обновляет UI статус."""
-        try:
-            if hasattr(self.page, 'main_app'):
-                self.page.main_app.update_status(status_type, data)
-        except Exception as e:
-            print(f"UI update error: {e}")
-
-    def start_bot(self):
-        """Запускает все сервисы бота."""
-        if self.is_bot_running:
-            return
-            
-        print("--- [LOGIC MANAGER] Starting bot services... ---")
-        
-        # Перезагружаем настройки
-        self.settings = self._load_config_file("data/config.json")
-        
-        # Инициализируем сервисы
-        self.db = DatabaseService()
-        self._update_service_status('database', 'CONNECTED')
-        
-        gpt_api_key = self.settings.get('gpt', {}).get('api_key')
-        self.gpt = GptService(api_key=gpt_api_key)
-        self._update_service_status('gpt', 'CONNECTED' if gpt_api_key else 'OFFLINE')
-        
-        mt5_cfg = self.settings.get('mt5', {})
-        self.mt5 = MT5Service(
-            path=mt5_cfg.get('path'),
-            login=mt5_cfg.get('login'),
-            password=mt5_cfg.get('password'),
-            server=mt5_cfg.get('server')
-        )
-        
-        # Инициализируем MT5
-        success, message = self.mt5.initialize()
-        if success:
-            self._update_service_status('mt5', 'CONNECTED')
-            # Получаем информацию об аккаунте
-            account_info = self.mt5.get_account_info()
-            if account_info:
-                self.stats['current_balance'] = account_info.get('balance', 0)
-        else:
-            self._update_service_status('mt5', 'ERROR')
-            print(f"MT5 initialization failed: {message}")
-        
-        # Запускаем парсер сигналов если включен
-        if self.settings.get('signal_parser', {}).get('enabled', True):
-            self.signal_processor = SignalProcessor(
-                self.db, self.gpt, self.mt5, self.settings, self.channels, self.page
-            )
-            
-            # Инициализируем Telegram сервис
-            tg_cfg = self.settings.get('telegram', {})
-            session_file = f"data/{tg_cfg.get('session_file', 'userbot.session')}"
-            self.telegram = TelegramService(
-                session_file,
-                tg_cfg.get('api_id'),
-                tg_cfg.get('api_hash'),
-                self.page
-            )
-            
-            # Запускаем Telegram в отдельном потоке
-            self.telegram.start()
-            self.is_signal_parser_running = True
-            
-            # Инициализируем Trade Manager
-            self.trade_manager = TradeManagerService(
-                self.db, self.mt5, self.settings, self.page
-            )
-            
-            # Запускаем Trade Manager в отдельном потоке
-            self.trade_manager.start_monitoring()
-            
-        else:
-            self._update_service_status('telegram', 'DISABLED')
-        
-        # Проверяем AI Trader
-        if self.settings.get('ai_trader', {}).get('enabled', False):
-            print("--- [LOGIC MANAGER] AI Trader is enabled. Use start_ai_trader() to begin. ---")
-        
-        self.is_bot_running = True
-        print("--- [LOGIC MANAGER] Bot services started successfully. ---")
-
-    def stop_bot(self):
-        """Останавливает все сервисы бота."""
-        if not self.is_bot_running:
-            return
-            
-        print("--- [LOGIC MANAGER] Stopping bot services... ---")
-        
-        # Останавливаем AI Trader если запущен
-        if self.is_ai_trader_running:
-            self.stop_ai_trader()
-        
-        # Останавливаем Trade Manager
-        if self.trade_manager:
-            self.trade_manager.stop()
-        
-        # Останавливаем Telegram
-        if self.telegram:
-            self.telegram.stop()
-        
-        # Закрываем MT5
-        if self.mt5:
-            self.mt5.shutdown()
-        
-        # Закрываем базу данных
-        if self.db:
-            self.db.close_connection()
-        
-        self.is_bot_running = False
-        self.is_signal_parser_running = False
-        print("--- [LOGIC MANAGER] Bot services stopped. ---")
-
-    def start_ai_trader(self):
-        """Запускает AI Trader."""
-        if not self.is_bot_running:
-            print("--- [LOGIC MANAGER] Bot must be running before starting AI Trader. ---")
-            return
-            
-        if self.is_ai_trader_running:
-            print("--- [LOGIC MANAGER] AI Trader is already running. ---")
-            return
-        
-        # Здесь можно добавить импорт и инициализацию AI Trader
-        # from .ai_trader_service import AITraderService
-        # self.ai_trader = AITraderService(...)
-        
-        self.is_ai_trader_running = True
-        print("--- [LOGIC MANAGER] AI Trader started. ---")
-
-    def stop_ai_trader(self):
-        """Останавливает AI Trader."""
-        if not self.is_ai_trader_running:
-            return
-        
-        # Останавливаем AI Trader
-        # if self.ai_trader:
-        #     self.ai_trader.stop()
-        
-        self.is_ai_trader_running = False
-        print("--- [LOGIC MANAGER] AI Trader stopped. ---")
+    def _load_settings(self):
+        # Пример: загрузка настроек из базы, если есть
+        if self.database:
+            try:
+                return self.database.get_all_settings()
+            except Exception:
+                return {}
+        return {}
 
     def update_settings(self, new_settings):
-        """Обновляет настройки и сохраняет в файл."""
-        self.settings.update(new_settings)
+        # Сохраняет настройки в базу и обновляет self.settings
         try:
-            with open("data/config.json", "w", encoding="utf-8") as f:
-                json.dump(self.settings, f, indent=4)
-            print("--- [LOGIC MANAGER] Settings updated successfully. ---")
-            return True
+            if self.database:
+                for category, values in new_settings.items():
+                    for key, value in values.items():
+                        self.database.save_setting(category, key, value)
+                self.settings = self.database.get_all_settings()
+                return True
         except Exception as e:
-            print(f"--- [LOGIC MANAGER] Error saving settings: {e} ---")
-            return False
-
-    def update_channels(self, new_channels):
-        """Обновляет список каналов и сохраняет в файл."""
-        self.channels = new_channels
-        try:
-            with open("data/channels.json", "w", encoding="utf-8") as f:
-                json.dump(self.channels, f, indent=4)
-            print("--- [LOGIC MANAGER] Channels updated successfully. ---")
-            return True
-        except Exception as e:
-            print(f"--- [LOGIC MANAGER] Error saving channels: {e} ---")
-            return False
-
-    def _update_service_status(self, service_name, status):
-        """Обновляет статус сервиса."""
-        print(f"--- [LOGIC MANAGER] {service_name.upper()} status: {status} ---")
-        self._update_ui_status(f'{service_name}_status', status)
-
-    def get_account_info(self):
-        """Получает информацию об аккаунте MT5."""
-        if self.mt5:
-            return self.mt5.get_account_info()
-        return None
-
-    def test_gpt_key(self, api_key):
-        """Тестирует GPT API ключ."""
-        if self.gpt:
-            return self.gpt.test_api_key(api_key)
+            print(f"Ошибка сохранения настроек: {e}")
         return False
 
-    def fetch_telegram_dialogs(self):
-        """Получает список диалогов Telegram."""
-        if self.telegram:
-            return self.telegram.fetch_dialogs()
-        return []
-
-    def get_signal_history(self, limit=100):
-        """Получает историю сигналов."""
-        if self.db:
-            return self.db.get_signal_history(limit=limit)
-        return []
-
     def get_bot_status(self):
-        """Получает общий статус бота."""
+        # Возвращает структуру статусов сервисов и статистики для интерфейса
+        system_status = self.get_system_status()
+        stats = self.get_trading_stats()
         return {
-            'bot_running': self.is_bot_running,
-            'ai_trader_running': self.is_ai_trader_running,
-            'signal_parser_running': self.is_signal_parser_running,
-            'stats': self.stats,
             'services': {
-                'database': self.db is not None,
-                'gpt': self.gpt is not None,
-                'mt5': self.mt5 is not None,
-                'telegram': self.telegram is not None,
-                'signal_processor': self.signal_processor is not None,
-                'trade_manager': self.trade_manager is not None
+                'telegram': system_status['telegram']['connected'],
+                'mt5': system_status['mt5']['connected'],
+                'gpt': system_status['gpt']['connected'],
+                'database': system_status['database']['connected'],
+            },
+            'bot_running': self.is_running,
+            'ai_trader_running': False,  # если есть AI Trader, добавить логику
+            'stats': {
+                'total_signals': stats.get('total_trades', 0),
+                'successful_trades': stats.get('winning_trades', 0),
+                'total_profit': stats.get('total_profit', 0.0)
             }
         }
-
-    def get_trading_stats(self):
-        """Получает торговую статистику."""
-        return self.stats
-
-    def reset_stats(self):
-        """Сбрасывает статистику."""
-        self.stats = {
-            'total_signals': 0,
-            'successful_trades': 0,
-            'failed_trades': 0,
-            'total_profit': 0.0,
-            'current_balance': 0.0
+    
+    def _initialize_services(self):
+        """Инициализация всех сервисов"""
+        try:
+            # База данных (всегда доступна)
+            if DATABASE_AVAILABLE:
+                self.database = DatabaseService()
+                print("✅ DatabaseService инициализирован")
+            
+            # MT5 сервис - универсальный режим
+            if MT5_AVAILABLE or True:  # Всегда инициализируем MT5Service
+                # Загружаем настройки MT5 из базы данных
+                mt5_settings = self.settings.get('mt5', {})
+                flask_settings = self.settings.get('mt5_server', {})
+                
+                self.mt5 = MT5Service(
+                    path=mt5_settings.get('path', "C:\\Program Files\\MetaTrader 5\\terminal64.exe"),
+                    login=mt5_settings.get('login', ""),
+                    password=mt5_settings.get('password', ""),
+                    server=mt5_settings.get('server', ""),
+                    flask_url=flask_settings.get('url', "http://10.211.55.3:5000")
+                )
+                print("✅ MT5Service инициализирован")
+                
+                # Автоматически инициализируем MT5 при запуске
+                try:
+                    success, message = self.mt5.initialize()
+                    if success:
+                        print(f"✅ MT5 автоматически подключен: {message}")
+                    else:
+                        print(f"⚠️ MT5 не подключен: {message}")
+                except Exception as e:
+                    print(f"⚠️ Ошибка автоматического подключения к MT5: {e}")
+            
+            # Telegram сервис (требует аргументы, инициализируем позже)
+            if TELEGRAM_AVAILABLE:
+                self.telegram = None  # Инициализируем позже с нужными аргументами
+                print("⚠️ TelegramService требует настройки")
+            
+            # GPT сервис
+            if GPT_AVAILABLE:
+                self.gpt = GPTService()
+                print("✅ GPTService инициализирован")
+            
+            # Менеджер торговли (инициализируем первым)
+            if TRADE_MANAGER_AVAILABLE:
+                self.trade_manager = TradeManagerService(
+                    mt5_service=self.mt5,
+                    database_service=self.database
+                )
+                print("✅ TradeManagerService инициализирован")
+            
+            # Обработчик сигналов (инициализируем после trade_manager)
+            if SIGNAL_PROCESSOR_AVAILABLE:
+                self.signal_processor = SignalProcessor(
+                    db_service=self.database,
+                    gpt_service=self.gpt,
+                    mt5_service=self.mt5,
+                    settings={},  # Пустые настройки по умолчанию
+                    channels={},  # Пустые каналы по умолчанию
+                    page=None  # Страница не нужна для LogicManager
+                )
+                print("✅ SignalProcessor инициализирован")
+            
+            # SMC стратегия
+            if SMC_AVAILABLE:
+                self.smc_strategy = SMCStrategy(mt5_service=self.mt5)
+                print("✅ SMCStrategy инициализирован")
+            
+        except Exception as e:
+            print(f"❌ Ошибка инициализации сервисов: {e}")
+    
+    def start_services(self):
+        """Запуск всех сервисов"""
+        try:
+            # Запуск MT5
+            if self.mt5:
+                success, message = self.mt5.initialize()
+                if success:
+                    print(f"✅ MT5 запущен: {message}")
+                else:
+                    print(f"⚠️ MT5 не запущен: {message}")
+            
+            # Запуск Telegram
+            if self.telegram:
+                success, message = self.telegram.initialize()
+                if success:
+                    print(f"✅ Telegram запущен: {message}")
+                else:
+                    print(f"⚠️ Telegram не запущен: {message}")
+            
+            # Запуск GPT
+            if self.gpt:
+                success, message = self.gpt.initialize()
+                if success:
+                    print(f"✅ GPT запущен: {message}")
+                else:
+                    print(f"⚠️ GPT не запущен: {message}")
+            
+            # Запуск SMC стратегии
+            if self.smc_strategy:
+                success, message = self.smc_strategy.initialize()
+                if success:
+                    print(f"✅ SMC стратегия запущена: {message}")
+                else:
+                    print(f"⚠️ SMC стратегия не запущена: {message}")
+            
+            # Запуск автообновления
+            self._start_auto_update()
+            
+            self.is_running = True
+            print("✅ Все сервисы запущены")
+            
+        except Exception as e:
+            print(f"❌ Ошибка запуска сервисов: {e}")
+    
+    def stop_services(self):
+        """Остановка всех сервисов"""
+        try:
+            # Остановка SMC стратегии
+            if self.smc_strategy:
+                self.smc_strategy.stop()
+                print("🛑 SMC стратегия остановлена")
+            
+            # Остановка Telegram
+            if self.telegram:
+                self.telegram.shutdown()
+                print("🛑 Telegram остановлен")
+            
+            # Остановка MT5
+            if self.mt5:
+                self.mt5.shutdown()
+                print("🛑 MT5 остановлен")
+            
+            # Остановка автообновления
+            self._stop_auto_update()
+            
+            self.is_running = False
+            print("🛑 Все сервисы остановлены")
+            
+        except Exception as e:
+            print(f"❌ Ошибка остановки сервисов: {e}")
+    
+    def _start_auto_update(self):
+        """Запуск автообновления данных"""
+        if self.auto_update_thread and self.auto_update_thread.is_alive():
+            return
+        
+        self.auto_update_thread = threading.Thread(target=self._auto_update_loop, daemon=True)
+        self.auto_update_thread.start()
+        print("✅ Автообновление запущено")
+    
+    def _stop_auto_update(self):
+        """Остановка автообновления"""
+        self.is_running = False
+        if self.auto_update_thread:
+            self.auto_update_thread.join(timeout=5)
+        print("🛑 Автообновление остановлено")
+    
+    def _auto_update_loop(self):
+        """Цикл автообновления данных"""
+        while self.is_running:
+            try:
+                # Обновление статистики торговли
+                if self.database:
+                    stats = self.database.get_trading_stats()
+                    # Здесь можно добавить логику обновления UI
+                
+                # Генерация SMC сигналов
+                if self.smc_strategy and self.smc_strategy.is_running:
+                    symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD']
+                    for symbol in symbols:
+                        signals = self.smc_strategy.generate_signals(symbol)
+                        for signal in signals:
+                            # Сохраняем сигнал в базу
+                            if self.database:
+                                self.database.add_signal({
+                                    'signal_id': f"SMC_{int(time.time())}",
+                                    'symbol': signal['symbol'],
+                                    'type': signal['type'],
+                                    'direction': signal['direction'],
+                                    'entry_price': signal['entry_price'],
+                                    'stop_loss': signal['stop_loss'],
+                                    'take_profit': signal['take_profit'],
+                                    'volume': signal['volume'],
+                                    'status': 'PENDING',
+                                    'timestamp': signal['timestamp'],
+                                    'source': 'SMC',
+                                    'channel': 'SMC_BOT',
+                                    'message_text': f"{signal['direction']} {signal['symbol']} at {signal['entry_price']}"
+                                })
+                
+                # Пауза между обновлениями
+                time.sleep(30)  # 30 секунд
+                
+            except Exception as e:
+                print(f"❌ Ошибка автообновления: {e}")
+                time.sleep(60)  # Увеличиваем паузу при ошибке
+    
+    def get_system_status(self):
+        """Получение статуса всей системы"""
+        return {
+            'mt5': {
+                'available': MT5_AVAILABLE,
+                'connected': self.mt5.is_initialized if self.mt5 else False
+            },
+            'telegram': {
+                'available': TELEGRAM_AVAILABLE,
+                'connected': self.telegram.is_connected if self.telegram else False
+            },
+            'gpt': {
+                'available': GPT_AVAILABLE,
+                'connected': self.gpt.is_initialized if self.gpt else False
+            },
+            'signal_processor': {
+                'available': SIGNAL_PROCESSOR_AVAILABLE,
+                'running': False  # убрано обращение к несуществующему атрибуту
+            },
+            'trade_manager': {
+                'available': TRADE_MANAGER_AVAILABLE,
+                'running': self.trade_manager.is_running if self.trade_manager else False
+            },
+            'database': {
+                'available': DATABASE_AVAILABLE,
+                'connected': self.database is not None
+            },
+            'smc_strategy': {
+                'available': SMC_AVAILABLE,
+                'running': self.smc_strategy.is_running if self.smc_strategy else False
+            },
+            'system': {
+                'running': self.is_running,
+                'auto_update': self.auto_update_thread.is_alive() if self.auto_update_thread else False
+            }
         }
-        print("--- [LOGIC MANAGER] Statistics reset. ---") 
+    
+    def get_trading_stats(self):
+        """Получение торговой статистики"""
+        if self.database:
+            return self.database.get_trading_stats()
+        return {}
+    
+    def get_recent_trades(self, limit=10):
+        """Получение последних сделок"""
+        if self.database:
+            return self.database.get_trades(limit=limit)
+        return []
+    
+    def get_recent_signals(self, limit=10):
+        """Получение последних сигналов"""
+        if self.database:
+            return self.database.get_signals(limit=limit)
+        return []
+    
+    def get_signal_history(self, limit=10):
+        """Получение истории сигналов (алиас для get_recent_signals)"""
+        return self.get_recent_signals(limit)
+    
+    def get_mt5_positions(self):
+        """Получение открытых позиций из MT5"""
+        if self.mt5 and self.mt5.is_initialized:
+            try:
+                # Используем методы MT5Service
+                if hasattr(self.mt5, 'get_positions'):
+                    return self.mt5.get_positions()
+                else:
+                    # Демо-режим или метод не реализован
+                    return []
+            except Exception as e:
+                print(f"Ошибка получения позиций MT5: {e}")
+                return []
+        return []
+    
+    def get_mt5_account_info(self):
+        """Получение информации об аккаунте MT5"""
+        if self.mt5 and self.mt5.is_initialized:
+            try:
+                return self.mt5.get_account_info()
+            except Exception as e:
+                print(f"Ошибка получения информации об аккаунте MT5: {e}")
+                return None
+        return None
+    
+    def get_mt5_deals_history(self, days=7):
+        """Получение истории сделок из MT5"""
+        if self.mt5 and self.mt5.is_initialized:
+            try:
+                return self.mt5.get_deals_in_history(days)
+            except Exception as e:
+                print(f"Ошибка получения истории сделок MT5: {e}")
+                return []
+        return []
+    
+    def get_mt5_rates(self, symbol, timeframe, count=100):
+        """Получение котировок из MT5"""
+        if self.mt5 and self.mt5.is_initialized:
+            try:
+                return self.mt5.get_rates(symbol, timeframe, count)
+            except Exception as e:
+                print(f"Ошибка получения котировок MT5: {e}")
+                return None
+        return None
+    
+    def update_smc_settings(self, settings):
+        """Обновление настроек SMC стратегии"""
+        if self.smc_strategy:
+            self.smc_strategy.update_settings(settings)
+            return True, "Настройки SMC обновлены"
+        return False, "SMC стратегия недоступна"
+    
+    def get_smc_status(self):
+        """Получение статуса SMC стратегии"""
+        if self.smc_strategy:
+            return self.smc_strategy.get_status()
+        return {'running': False, 'mt5_available': MT5_AVAILABLE, 'mode': 'Paper', 'active_positions': 0}
+    
+    def execute_smc_signal(self, signal):
+        """Выполнение SMC сигнала"""
+        if self.smc_strategy:
+            return self.smc_strategy.execute_signal(signal)
+        return False, "SMC стратегия недоступна"
+    
+    def add_channel(self, channel_data):
+        """Добавление нового канала"""
+        if self.database:
+            self.database.add_channel(channel_data)
+            return True, "Канал добавлен"
+        return False, "База данных недоступна"
+    
+    def get_channels(self):
+        """Получение списка каналов"""
+        if self.database:
+            return self.database.get_channels()
+        return []
+    
+    def add_log(self, level, source, message):
+        """Добавление лога"""
+        if self.database:
+            self.database.add_log(level, source, message)
+    
+    def get_logs(self, limit=50):
+        """Получение логов"""
+        if self.database:
+            return self.database.get_logs(limit=limit)
+        return [] 

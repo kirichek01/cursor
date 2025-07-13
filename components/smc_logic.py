@@ -4,46 +4,77 @@ from datetime import datetime
 import telegram
 import asyncio
 
-# ----- ПОПЫТКА ИМПОРТА MT5 -----
+# Импорт MetaTrader5 с обработкой ошибки
 try:
     import MetaTrader5 as mt5
-    MT5_INITIALIZED = True
+    MT5_AVAILABLE = True
 except ImportError:
-    print("⚠️ MetaTrader5 не найден. Используется dummy_data.csv")
-    MT5_INITIALIZED = False
+    print("⚠️ MetaTrader5 не найден. SMC функции будут недоступны.")
+    MT5_AVAILABLE = False
+    mt5 = None
 
 # ======== MT5 Data Load ============
 def load_mt5_data(symbol="XAUUSD", timeframe="M15", date_from="2025-01-01", date_to="2025-06-01"):
-    if MT5_INITIALIZED:
-        tf_map = {"M1": mt5.TIMEFRAME_M1, "M5": mt5.TIMEFRAME_M5, "M15": mt5.TIMEFRAME_M15,
-                  "M30": mt5.TIMEFRAME_M30, "H1": mt5.TIMEFRAME_H1, "H4": mt5.TIMEFRAME_H4,
-                  "D1": mt5.TIMEFRAME_D1}
+    if not MT5_AVAILABLE:
+        # Демо-данные для macOS
+        return _generate_demo_data(symbol, date_from, date_to)
+    
+    tf_map = {"M1": mt5.TIMEFRAME_M1, "M5": mt5.TIMEFRAME_M5, "M15": mt5.TIMEFRAME_M15,
+              "M30": mt5.TIMEFRAME_M30, "H1": mt5.TIMEFRAME_H1, "H4": mt5.TIMEFRAME_H4,
+              "D1": mt5.TIMEFRAME_D1}
 
-        if not mt5.initialize():
-            print("❌ MT5 initialize() failed")
-            return None
+    if not mt5.initialize():
+        raise RuntimeError("❌ MT5 initialize() failed")
 
-        rates = mt5.copy_rates_range(symbol, tf_map[timeframe],
-                                     datetime.strptime(date_from, "%Y-%m-%d"),
-                                     datetime.strptime(date_to, "%Y-%m-%d"))
-        mt5.shutdown()
-        
-        if rates is None:
-            return None
-        
-        df = pd.DataFrame(rates)
-    else:
-        # Загрузка данных из CSV, если MT5 недоступен
-        try:
-            df = pd.read_csv("dummy_data.csv")
-        except FileNotFoundError:
-            print("❌ dummy_data.csv не найден!")
-            return None
+    rates = mt5.copy_rates_range(symbol, tf_map[timeframe],
+                                 datetime.strptime(date_from, "%Y-%m-%d"),
+                                 datetime.strptime(date_to, "%Y-%m-%d"))
+    mt5.shutdown()
 
+    if rates is None:
+        raise RuntimeError("❌ MT5 copy_rates_range() returned None!")
+
+    df = pd.DataFrame(rates)
     df["datetime"] = pd.to_datetime(df["time"], unit="s")
     df = df[["datetime", "open", "high", "low", "close"]]
-    df = df.sort_values(by=["datetime"]).reset_index(drop=True)
+    df = df.sort_values("datetime").reset_index(drop=True)
     return df
+
+def _generate_demo_data(symbol, date_from, date_to):
+    """Генерирует демо-данные для macOS"""
+    start_date = datetime.strptime(date_from, "%Y-%m-%d")
+    end_date = datetime.strptime(date_to, "%Y-%m-%d")
+    
+    # Генерируем временные метки каждые 15 минут
+    dates = pd.date_range(start=start_date, end=end_date, freq='15T')
+    
+    # Базовые цены для разных символов
+    base_price = 1.2000 if "EUR" in symbol else 1.3000 if "GBP" in symbol else 110.0 if "JPY" in symbol else 2000.0
+    
+    np.random.seed(42)
+    prices = [base_price]
+    
+    # Генерируем цены с реалистичными движениями
+    for i in range(1, len(dates)):
+        change = np.random.normal(0, 0.0005)
+        prices.append(prices[-1] + change)
+    
+    # Создаем OHLC данные
+    data = []
+    for i, (date, close) in enumerate(zip(dates, prices)):
+        high = close + abs(np.random.normal(0, 0.0002))
+        low = close - abs(np.random.normal(0, 0.0002))
+        open_price = prices[i-1] if i > 0 else close
+        
+        data.append({
+            'datetime': date,
+            'open': open_price,
+            'high': high,
+            'low': low,
+            'close': close
+        })
+    
+    return pd.DataFrame(data)
 
 # ======== SMC Feature Generation ============
 def generate_smc_features(df):
