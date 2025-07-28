@@ -36,34 +36,9 @@ def load_mt5_data(symbol="XAUUSD", timeframe="M15", date_from="2025-01-01", date
     
     # Локальная загрузка через MT5
     if not mt5:
-        print("❌ MetaTrader5 library is not installed. Generating demo data...")
-        # Возвращаем демо-данные для тестирования
-        dates = pd.date_range(start=date_from, end=date_to, freq='15min')
-        np.random.seed(42)  # Для воспроизводимости
-        open_price = 2650.0
-        demo_data = []
-        
-        for i, date in enumerate(dates):
-            # Генерируем реалистичные данные XAUUSD
-            variation = np.random.normal(0, 5)  # Вариация цены
-            open_val = open_price + variation
-            high_val = open_val + abs(np.random.normal(0, 3))
-            low_val = open_val - abs(np.random.normal(0, 3))
-            close_val = open_val + np.random.normal(0, 2)
-            volume = np.random.randint(50, 500)
-            
-            demo_data.append({
-                'datetime': date,
-                'open': round(open_val, 2),
-                'high': round(high_val, 2),
-                'low': round(low_val, 2),
-                'close': round(close_val, 2),
-                'tick_volume': volume
-            })
-            
-            open_price = close_val  # Следующая свеча начинается с закрытия предыдущей
-        
-        return pd.DataFrame(demo_data)
+        error_msg = "❌ MetaTrader5 library is not installed and no server configured. Cannot load real data."
+        print(error_msg)
+        raise Exception(error_msg)
 
     tf_map = {"M1": mt5.TIMEFRAME_M1, "M5": mt5.TIMEFRAME_M5, "M15": mt5.TIMEFRAME_M15,
               "M30": mt5.TIMEFRAME_M30, "H1": mt5.TIMEFRAME_H1, "H4": mt5.TIMEFRAME_H4,

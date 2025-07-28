@@ -113,17 +113,20 @@ def generate_line_chart():
     return _generate_chart_image(fig)
 
 def generate_real_profit_chart(logic_manager, days=7):
-    """Генерирует реальный график прибыли на основе данных из базы"""
+    """Генерирует реальный график прибыли - только реальные данные"""
     if not logic_manager or not logic_manager.database:
-        return generate_line_chart()
+        return _create_no_data_chart("Нет подключения к базе данных")
     
     try:
-        # Получаем данные прибыли по дням из базы данных
-        daily_profits = logic_manager.database.get_profit_by_days(days)
+        # Получаем реальные данные прибыли по дням из базы данных
+        profit_data = logic_manager.database.get_profit_by_days(days)
         
-        if not daily_profits or all(p == 0 for p in daily_profits):
-            # Если нет реальных данных, создаем демо-данные
-            daily_profits = [0, 15, -10, 25, 35, 20, 45][:days]
+        if not profit_data:
+            print("ℹ️ Нет реальных данных о прибыли для построения графика")
+            return _create_no_data_chart("Нет реальных торговых данных\nОжидание торговых операций...")
+        
+        # Извлекаем данные
+        daily_profits = [item.get('profit', 0) if isinstance(item, dict) else item for item in profit_data]
         
         # Создаем кумулятивную прибыль
         cumulative_profits = []
@@ -136,8 +139,8 @@ def generate_real_profit_chart(logic_manager, days=7):
         from datetime import datetime, timedelta
         end_date = datetime.now()
         dates = []
-        for i in range(days):
-            date = end_date - timedelta(days=days-1-i)
+        for i in range(len(daily_profits)):
+            date = end_date - timedelta(days=len(daily_profits)-1-i)
             dates.append(date.strftime('%a'))
         
         # Создаем график
@@ -168,6 +171,12 @@ def generate_real_profit_chart(logic_manager, days=7):
         # Добавляем горизонтальную линию на нуле
         ax.axhline(y=0, color='#bfc9da', linestyle='--', alpha=0.5)
         
+        # Добавляем заголовок с пометкой о реальных данных
+        final_profit = cumulative_profits[-1] if cumulative_profits else 0
+        title_color = '#4CAF50' if final_profit >= 0 else '#f44336'
+        ax.set_title(f'Реальная прибыль: ${final_profit:.2f}', 
+                    color=title_color, fontsize=12, fontweight='bold', pad=10)
+        
         # Убираем рамки
         for spine in ax.spines.values():
             spine.set_visible(False)
@@ -180,5 +189,28 @@ def generate_real_profit_chart(logic_manager, days=7):
         return _generate_chart_image(fig)
         
     except Exception as e:
-        print(f"Ошибка создания графика прибыли: {e}")
-        return generate_line_chart() 
+        print(f"❌ Ошибка создания графика прибыли: {e}")
+        return _create_no_data_chart(f"Ошибка: {str(e)}")
+
+def _create_no_data_chart(message):
+    """Создает график с сообщением об отсутствии данных."""
+    fig, ax = plt.subplots(figsize=(12.0, 4.5), dpi=100)
+    fig.subplots_adjust(left=0.05, right=0.98, top=0.95, bottom=0.1)
+    
+    ax.text(0.5, 0.5, message, 
+           horizontalalignment='center', verticalalignment='center',
+           transform=ax.transAxes, fontsize=14, color='#bfc9da',
+           bbox=dict(boxstyle="round,pad=0.3", facecolor='#272a44', alpha=0.8))
+    
+    ax.set_facecolor('#28294a')
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    
+    # Убираем рамки
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    
+    fig.patch.set_alpha(0)
+    return _generate_chart_image(fig) 

@@ -121,81 +121,12 @@ class DatabaseService:
         conn.commit()
         conn.close()
         
-        # Добавляем демо-данные если таблицы пустые
-        self._add_demo_data()
+        # Removed demo data initialization - only real data will be used
+        print("✅ Database initialized successfully. Ready for real trading data.")
     
     def _add_demo_data(self):
-        """Добавление демо-данных для тестирования"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Проверяем, есть ли уже данные
-        cursor.execute("SELECT COUNT(*) FROM trades")
-        if cursor.fetchone()[0] == 0:
-            # Добавляем демо-сделки
-            demo_trades = [
-                ('TRADE_001', 'EURUSD', 'BUY', 'LONG', 1.2050, 1.2100, 1.2000, 1.2150, 0.1, 'CLOSED', 50.0, datetime.now() - timedelta(days=1), datetime.now(), 'SMC', 'Demo trade 1'),
-                ('TRADE_002', 'GBPUSD', 'SELL', 'SHORT', 1.3000, 1.2950, 1.3050, 1.2900, 0.1, 'CLOSED', 50.0, datetime.now() - timedelta(days=2), datetime.now() - timedelta(hours=12), 'Parser', 'Demo trade 2'),
-                ('TRADE_003', 'EURUSD', 'BUY', 'LONG', 1.2080, None, 1.2030, 1.2180, 0.1, 'OPEN', None, datetime.now() - timedelta(hours=6), None, 'SMC', 'Demo trade 3'),
-                ('TRADE_004', 'USDJPY', 'SELL', 'SHORT', 110.50, None, 111.00, 109.50, 0.1, 'OPEN', None, datetime.now() - timedelta(hours=3), None, 'Parser', 'Demo trade 4'),
-                ('TRADE_005', 'EURUSD', 'BUY', 'LONG', 1.2020, 1.1980, 1.1970, 1.2120, 0.1, 'CLOSED', -40.0, datetime.now() - timedelta(days=3), datetime.now() - timedelta(days=2), 'SMC', 'Demo trade 5')
-            ]
-            
-            for trade in demo_trades:
-                cursor.execute('''
-                    INSERT INTO trades (trade_id, symbol, type, direction, entry_price, exit_price, 
-                                      stop_loss, take_profit, volume, status, profit_loss, timestamp, 
-                                      close_timestamp, source, comment)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', trade)
-            
-            # Добавляем демо-сигналы
-            demo_signals = [
-                ('SIGNAL_001', 'EURUSD', 'BUY', 'LONG', 1.2050, 1.2000, 1.2150, 0.1, 'EXECUTED', datetime.now() - timedelta(days=1), 'Parser', 'GOLDHUNTER', 'BUY EURUSD at 1.2050 SL: 1.2000 TP: 1.2150'),
-                ('SIGNAL_002', 'GBPUSD', 'SELL', 'SHORT', 1.3000, 1.3050, 1.2900, 0.1, 'EXECUTED', datetime.now() - timedelta(days=2), 'Parser', 'GOLDHUNTER', 'SELL GBPUSD at 1.3000 SL: 1.3050 TP: 1.2900'),
-                ('SIGNAL_003', 'EURUSD', 'BUY', 'LONG', 1.2080, 1.2030, 1.2180, 0.1, 'PENDING', datetime.now() - timedelta(hours=6), 'SMC', 'SMC_BOT', 'BOS signal EURUSD'),
-                ('SIGNAL_004', 'USDJPY', 'SELL', 'SHORT', 110.50, 111.00, 109.50, 0.1, 'PENDING', datetime.now() - timedelta(hours=3), 'Parser', 'GOLDHUNTER', 'SELL USDJPY at 110.50')
-            ]
-            
-            for signal in demo_signals:
-                cursor.execute('''
-                    INSERT INTO signals (signal_id, symbol, type, direction, entry_price, 
-                                       stop_loss, take_profit, volume, status, timestamp, 
-                                       source, channel, message_text)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', signal)
-            
-            # Добавляем демо-каналы
-            demo_channels = [
-                ('GOLDHUNTER', 'goldhunter_channel', True, datetime.now(), datetime.now() - timedelta(hours=2), 150, 25),
-                ('SMC_BOT', 'smc_bot_channel', True, datetime.now(), datetime.now() - timedelta(hours=1), 50, 10),
-                ('TRADE_SIGNALS', 'trade_signals_channel', False, datetime.now(), datetime.now() - timedelta(days=1), 300, 45)
-            ]
-            
-            for channel in demo_channels:
-                cursor.execute('''
-                    INSERT INTO channels (channel_name, channel_id, is_active, added_at, 
-                                        last_message_at, message_count, signal_count)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', channel)
-            
-            # Добавляем демо-статистику
-            demo_stats = [
-                (datetime.now().date(), 5, 3, 2, 60.0, -40.0, 0.6, 50.0, -40.0, 1.5, 'SMC'),
-                ((datetime.now() - timedelta(days=1)).date(), 3, 2, 1, 30.0, -20.0, 0.67, 30.0, -20.0, 1.5, 'Parser'),
-                ((datetime.now() - timedelta(days=2)).date(), 4, 2, 2, 20.0, -30.0, 0.5, 25.0, -15.0, 1.67, 'SMC')
-            ]
-            
-            for stat in demo_stats:
-                cursor.execute('''
-                    INSERT INTO statistics (date, total_trades, winning_trades, losing_trades,
-                                          total_profit, max_drawdown, win_rate, avg_win, 
-                                          avg_loss, profit_factor, source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', stat)
-        
-        conn.commit()
-        conn.close()
+        """Demo data functionality removed - using only real trading data"""
+        pass
     
     def add_trade(self, trade_data):
         """Добавление новой сделки"""

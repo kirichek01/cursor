@@ -12,42 +12,40 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 class MT5Server:
-    """Сервер для работы с MT5"""
+    """Сервер для работы с MT5 - только реальные данные"""
     
     def __init__(self):
         self.initialized = False
         self.account_info = None
-        self.demo_mode = True  # Режим демо по умолчанию
         
     def initialize(self, path: str = None, login: int = None, password: str = None, server: str = None):
         """Инициализация подключения к MT5"""
         try:
-            # Если указан путь к MT5, пробуем подключиться
-            if path:
-                if not mt5.initialize(path=path):
-                    logger.error(f"MT5 initialize() failed: {mt5.last_error()}")
-                    return False, f"Ошибка инициализации MT5: {mt5.last_error()}"
+            # Путь к MT5 обязателен для реального подключения
+            if not path:
+                error_msg = "❌ Path to MT5 terminal is required for real connection"
+                logger.error(error_msg)
+                return False, error_msg
                 
-                # Если указаны данные для входа
-                if login and password and server:
-                    if not mt5.login(login, password, server):
-                        logger.error(f"MT5 login() failed: {mt5.last_error()}")
-                        return False, f"Ошибка входа в MT5: {mt5.last_error()}"
-                
-                # Получаем информацию об аккаунте
-                self.account_info = mt5.account_info()
-                if self.account_info:
-                    logger.info(f"Подключен к аккаунту: {self.account_info.login}")
-                    self.demo_mode = False
-                
-                self.initialized = True
-                return True, "MT5 успешно инициализирован"
+            if not mt5.initialize(path=path):
+                logger.error(f"MT5 initialize() failed: {mt5.last_error()}")
+                return False, f"Ошибка инициализации MT5: {mt5.last_error()}"
+            
+            # Если указаны данные для входа
+            if login and password and server:
+                if not mt5.login(login, password, server):
+                    logger.error(f"MT5 login() failed: {mt5.last_error()}")
+                    return False, f"Ошибка входа в MT5: {mt5.last_error()}"
+            
+            # Получаем информацию об аккаунте
+            self.account_info = mt5.account_info()
+            if self.account_info:
+                logger.info(f"Подключен к реальному аккаунту: {self.account_info.login}")
             else:
-                # Демо режим без MT5
-                logger.info("MT5 не указан, работаем в демо-режиме")
-                self.initialized = True
-                self.demo_mode = True
-                return True, "MT5 работает в демо-режиме"
+                return False, "Не удалось получить информацию о реальном аккаунте"
+            
+            self.initialized = True
+            return True, "MT5 успешно инициализирован с реальными данными"
             
         except Exception as e:
             logger.error(f"Ошибка инициализации MT5: {e}")
@@ -55,61 +53,12 @@ class MT5Server:
     
     def shutdown(self):
         """Закрытие подключения к MT5"""
-        if self.initialized and not self.demo_mode:
+        if self.initialized:
             mt5.shutdown()
             self.initialized = False
             logger.info("MT5 соединение закрыто")
     
-    def get_demo_account_info(self):
-        """Демо информация об аккаунте"""
-        return {
-            "success": True,
-            "login": 12345678,
-            "balance": 10000.0,
-            "equity": 10000.0,
-            "profit": 0.0,
-            "currency": "USD",
-            "leverage": 100,
-            "margin": 0.0,
-            "margin_free": 10000.0,
-            "margin_level": 0.0,
-            "demo": True
-        }
-    
-    def get_demo_positions(self):
-        """Демо позиции"""
-        return {
-            "success": True,
-            "positions": []
-        }
-    
-    def get_demo_rates(self, symbol: str, timeframe: str, count: int = 10):
-        """Демо котировки"""
-        import random
-        from datetime import datetime, timedelta
-        
-        # Генерируем демо-данные
-        base_price = 1.2000 if "EUR" in symbol else 1.3000 if "GBP" in symbol else 110.0
-        rates = []
-        
-        for i in range(count):
-            timestamp = datetime.now() - timedelta(minutes=i)
-            price = base_price + random.uniform(-0.01, 0.01)
-            rates.append({
-                "time": timestamp.isoformat(),
-                "open": price,
-                "high": price + random.uniform(0, 0.005),
-                "low": price - random.uniform(0, 0.005),
-                "close": price + random.uniform(-0.002, 0.002),
-                "tick_volume": random.randint(100, 1000)
-            })
-        
-        return {
-            "success": True,
-            "symbol": symbol,
-            "timeframe": timeframe,
-            "rates": rates
-        }
+    # Demo methods removed - only real MT5 data supported
     
     def send_order(self, symbol: str, volume: float, order_type: str, 
                    price: Optional[float] = None, sl: Optional[float] = None, 
@@ -118,17 +67,7 @@ class MT5Server:
         if not self.initialized:
             return {"success": False, "error": "MT5 не инициализирован"}
         
-        if self.demo_mode:
-            # Демо режим - симулируем отправку ордера
-            return {
-                "success": True,
-                "ticket": 123456,
-                "volume": volume,
-                "price": price or 1.2000,
-                "comment": comment,
-                "retcode": 10009,  # TRADE_RETCODE_DONE
-                "demo": True
-            }
+        # Only real orders supported
         
         try:
             # Выбираем символ
@@ -220,8 +159,7 @@ class MT5Server:
         if not self.initialized:
             return {"success": False, "error": "MT5 не инициализирован"}
         
-        if self.demo_mode:
-            return self.get_demo_account_info()
+        # Only real account info supported
         
         try:
             account_info = mt5.account_info()
@@ -249,8 +187,7 @@ class MT5Server:
         if not self.initialized:
             return {"success": False, "error": "MT5 не инициализирован"}
         
-        if self.demo_mode:
-            return self.get_demo_positions()
+        # Only real positions supported
         
         try:
             positions = mt5.positions_get()
@@ -281,8 +218,7 @@ class MT5Server:
         if not self.initialized:
             return {"success": False, "error": "MT5 не инициализирован"}
         
-        if self.demo_mode:
-            return self.get_demo_rates(symbol, timeframe, count)
+        # Only real rates supported
         
         try:
             # Преобразуем timeframe в формат MT5
@@ -330,8 +266,7 @@ class MT5Server:
         if not self.initialized:
             return {"success": False, "error": "MT5 не инициализирован"}
         
-        if self.demo_mode:
-            return {"success": True, "message": f"Демо позиция {ticket} закрыта", "demo": True}
+        # Only real position closing supported
         
         try:
             positions = mt5.positions_get(ticket=ticket)
@@ -376,8 +311,7 @@ class MT5Server:
         if not self.initialized:
             return {"success": False, "error": "MT5 не инициализирован"}
         
-        if self.demo_mode:
-            return {"success": True, "message": f"Демо позиция {ticket} модифицирована", "demo": True}
+        # Only real position modification supported
         
         try:
             positions = mt5.positions_get(ticket=ticket)
@@ -420,7 +354,7 @@ def health_check():
     return jsonify({
         "status": "ok",
         "mt5_initialized": mt5_server.initialized,
-        "demo_mode": mt5_server.demo_mode,
+        "real_data_only": True,
         "timestamp": datetime.now().isoformat()
     })
 
@@ -501,12 +435,8 @@ def shutdown_mt5():
     return jsonify({"success": True, "message": "MT5 соединение закрыто"})
 
 if __name__ == '__main__':
-    # Автоматическая инициализация MT5 при запуске (демо режим)
-    success, message = mt5_server.initialize()
-    if success:
-        logger.info("✅ MT5 сервер запущен успешно")
-    else:
-        logger.warning(f"⚠️ MT5 не инициализирован: {message}")
+    logger.info("🚀 MT5 сервер запущен. Ожидание подключения к реальному MT5...")
+    logger.info("📋 Используйте /initialize endpoint для подключения к MT5")
     
     # Запуск Flask сервера
     app.run(host='0.0.0.0', port=5000, debug=False) 

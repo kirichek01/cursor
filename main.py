@@ -504,18 +504,8 @@ class MainApp:
                         self.last_transactions_column.controls.append(transaction_row)
                     return
             
-            # Если нет реальных данных, показываем демо
-            demo_transactions = [
-                ("#4CAF50", "BUY EURUSD", "2024-01-15 14:30", "+$45.20"),
-                ("#FF5722", "SELL GBPUSD", "2024-01-15 14:25", "-$32.10"),
-                ("#4CAF50", "BUY XAUUSD", "2024-01-15 14:20", "+$120.50"),
-                ("#FF5722", "SELL USDJPY", "2024-01-15 14:15", "-$18.75"),
-                ("#4CAF50", "BUY AUDUSD", "2024-01-15 14:10", "+$67.30"),
-            ]
-            
-            for icon_color, title, subtitle, amount in demo_transactions:
-                transaction_row = _create_transaction_row(icon_color, title, subtitle, amount)
-                self.last_transactions_column.controls.append(transaction_row)
+            # No demo data - only real trading data will be displayed
+            print("ℹ️ No recent transactions available. Waiting for real trading data...")
 
     def update_income(self):
         """Обновляет доход в правой панели."""

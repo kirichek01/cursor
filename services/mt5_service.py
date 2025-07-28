@@ -40,7 +40,7 @@ class MT5Service:
         elif self.flask_url:
             return "flask"  # Flask API режим
         else:
-            return "demo"   # Демо режим
+            return "unavailable"   # MT5 не доступен
     
     def _log_error(self, message):
         print(f"--- [MT5] ERROR: {message} ---")
@@ -55,7 +55,7 @@ class MT5Service:
             elif self.mode == "flask":
                 return self._initialize_flask()
             else:
-                return True, "MT5 работает в демо-режиме"
+                return False, "MT5 недоступен - требуется реальное подключение"
         except Exception as e:
             return False, f"Ошибка инициализации MT5: {e}"
     
@@ -140,8 +140,8 @@ class MT5Service:
                 if response.status_code == 200:
                     return response.json()
             else:
-                # Демо режим
-                return {"demo": True, "balance": 10000, "equity": 10000}
+                # MT5 недоступен
+                return {"error": "MT5 не подключен - требуется реальное подключение"}
         except Exception as e:
             self._log_error(f"Ошибка получения информации об аккаунте: {e}")
             return None
