@@ -1,0 +1,21 @@
+{
+    "mt5_path": "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
+    "login": 12345678,
+    "password": "your_password_here",
+    "server": "YourBroker-Demo",
+    "host": "0.0.0.0",
+    "port": 5000,
+    "debug": false,
+    "auto_initialize": false,
+    "comments": {
+        "mt5_path": "Полный путь к исполняемому файлу MT5",
+        "login": "Номер счета MT5",
+        "password": "Пароль от счета MT5",
+        "server": "Имя сервера брокера",
+        "host": "IP для сервера (0.0.0.0 для всех интерфейсов)",
+        "port": "Порт для Flask сервера",
+        "debug": "Режим отладки Flask",
+        "auto_initialize": "Автоматическая инициализация при запуске",
+        "note": "Скопируйте в mt5_config.json и заполните реальными данными"
+    }
+}
