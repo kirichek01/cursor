@@ -1,5 +1,5 @@
 import flet as ft
-from services.logic_manager import LogicManager
+from core.services.logic_manager import LogicManager
 
 # ----- КОНСТАНТЫ -----
 BLOCK_BG_COLOR = "#272a44"
