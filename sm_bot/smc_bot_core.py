@@ -3,12 +3,8 @@ import numpy as np
 try:
     import MetaTrader5 as mt5
 except ImportError:
-    mt5 = None # Or a mock object
-from datetime import datetime
-from PySide6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem, QPushButton
-from PySide6.QtCore import Qt
-import sys
-import telegram
+    mt5 = None
+from datetime import datetime, timedelta
 
 # ======== MT5 Data Load ============
 def load_mt5_data(symbol="XAUUSD", timeframe="M15", date_from="2025-01-01", date_to="2025-06-01", use_server=False, server_url=None):
@@ -40,7 +36,7 @@ def load_mt5_data(symbol="XAUUSD", timeframe="M15", date_from="2025-01-01", date
     
     # Локальная загрузка через MT5
     if not mt5:
-        print("❌ MetaTrader5 library is not installed. Cannot load data.")
+        print("❌ MetaTrader5 library is not installed. Generating demo data...")
         # Возвращаем демо-данные для тестирования
         dates = pd.date_range(start=date_from, end=date_to, freq='15min')
         np.random.seed(42)  # Для воспроизводимости
@@ -100,6 +96,11 @@ def load_mt5_data(symbol="XAUUSD", timeframe="M15", date_from="2025-01-01", date
 
 # ======== SMC Feature Generation ============
 def generate_smc_features(df):
+    """Генерация SMC индикаторов"""
+    if df.empty:
+        return df
+        
+    df = df.copy()
     df["hour"] = df["datetime"].dt.hour
     df["session"] = df["hour"].apply(lambda h: "London" if 7 <= h < 12 else ("New York" if 13 <= h < 18 else "Asia"))
     df["ema_50"] = df["close"].ewm(span=50).mean()
@@ -116,9 +117,11 @@ def generate_smc_features(df):
 
     body = abs(df["close"] - df["open"])
     wick = df["high"] - df["low"]
+    wick = wick.replace(0, 0.0001)  # Избегаем деления на ноль
     df["order_block"] = (body / wick > 0.6).astype(int)
     df["fvg"] = ((df["high"] < df["low"].shift(-2)) | (df["low"] > df["high"].shift(-2))).astype(int)
     df["inducement"] = ((df["high"] > df["high"].shift(3)) & (df["close"] < df["open"])).astype(int)
+    
     return df.dropna().reset_index(drop=True)
 
 # ======== SMC Strategy Execution ============
@@ -346,83 +349,12 @@ def run_strategy(df, balance=10000, trade_signal=None, ai_agent=None, symbol="XA
 
 # ======== Telegram Notification ============
 def send_telegram_message(message, token, chat_id):
-    bot = telegram.Bot(token=token)
-    bot.sendMessage(chat_id=chat_id, text=message)
-
-# ======== GUI Setup ============
-class SMCBotUI(QMainWindow):
-    def __init__(self):
-        super().__init__()
-
-        self.setWindowTitle('SMC Trade Bot Interface')
-        self.setGeometry(100, 100, 800, 600)
-
-        # Основной Layout
-        layout = QVBoxLayout()
-
-        # Заголовок
-        title_label = QLabel('Combine Trade Bot by Kistech', self)
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("font-size: 24px; color: white;")
-        layout.addWidget(title_label)
-
-        # Баланс
-        balance_label = QLabel('Balance: $10,000', self)
-        balance_label.setAlignment(Qt.AlignCenter)
-        balance_label.setStyleSheet("font-size: 18px; color: #00FF00;")
-        layout.addWidget(balance_label)
-
-        # График баланса (позже подключим)
-        chart_label = QLabel('Balance Equity Curve (Placeholder)', self)
-        chart_label.setAlignment(Qt.AlignCenter)
-        chart_label.setStyleSheet("font-size: 16px; color: white;")
-        layout.addWidget(chart_label)
-
-        # Настройки сигналов
-        signals_label = QLabel('Signals', self)
-        signals_label.setAlignment(Qt.AlignCenter)
-        signals_label.setStyleSheet("font-size: 18px; color: white;")
-        layout.addWidget(signals_label)
-
-        # Таблица сигналов
-        table = QTableWidget(self)
-        table.setRowCount(5)
-        table.setColumnCount(3)
-        table.setHorizontalHeaderLabels(['Signal Type', 'Symbol', 'Price'])
-
-        # Заполнение таблицы примерами
-        data = [
-            ['Buy', 'XAUUSD', '2670.00'],
-            ['Sell', 'EURUSD', '1.2200'],
-            ['Buy', 'GER40', '15000.50'],
-            ['Buy', 'XAUUSD', '2675.30'],
-            ['Sell', 'GBPUSD', '1.3600']
-        ]
-
-        for row_idx, row_data in enumerate(data):
-            for col_idx, value in enumerate(row_data):
-                table.setItem(row_idx, col_idx, QTableWidgetItem(value))
-
-        layout.addWidget(table)
-
-        # Основной центральный виджет
-        central_widget = QWidget(self)
-        central_widget.setLayout(layout)
-        self.setCentralWidget(central_widget)
-
-# ======== Запуск торговли и UI ============
-if __name__ == "__main__":
-    # --- This code will now only run when the script is executed directly ---
-    
-    # GUI Part
-    app = QApplication(sys.argv)
-    window = SMCBotUI()
-    window.setStyleSheet("background-color: #2E3B47; color: white;")
-    window.show()
-    
-    # Logic Part (can be run separately or triggered from UI)
-    # df_raw = load_mt5_data(symbol="XAUUSD", timeframe="M15", date_from="2025-01-01", date_to="2025-06-01")
-    # df_features = generate_smc_features(df_raw)
-    # run_strategy(df_features)
-    
-    sys.exit(app.exec())
+    """Отправка уведомления в Telegram"""
+    try:
+        import telegram
+        bot = telegram.Bot(token=token)
+        bot.sendMessage(chat_id=chat_id, text=message)
+        return True
+    except Exception as e:
+        print(f"Ошибка отправки Telegram сообщения: {e}")
+        return False

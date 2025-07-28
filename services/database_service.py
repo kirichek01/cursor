@@ -525,4 +525,130 @@ class DatabaseService:
             except:
                 result[category][key] = value
         
-        return result 
+        return result
+    
+    def get_recent_trades(self, limit=5):
+        """Получение последних торговых записей для дашборда"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT trade_id, symbol, type, direction, entry_price, exit_price,
+                   profit_loss, timestamp, close_timestamp, status, source
+            FROM trades 
+            ORDER BY timestamp DESC 
+            LIMIT ?
+        ''', (limit,))
+        
+        trades = cursor.fetchall()
+        conn.close()
+        
+        # Преобразуем в список словарей
+        trade_list = []
+        for trade in trades:
+            trade_dict = {
+                'trade_id': trade[0],
+                'symbol': trade[1],
+                'type': trade[2],
+                'direction': trade[3],
+                'entry_price': trade[4],
+                'exit_price': trade[5],
+                'profit_loss': trade[6] or 0,
+                'timestamp': trade[7],
+                'close_timestamp': trade[8],
+                'status': trade[9],
+                'source': trade[10]
+            }
+            trade_list.append(trade_dict)
+        
+        return trade_list
+    
+    def get_last_trades(self, limit=5):
+        """Алиас для get_recent_trades"""
+        return self.get_recent_trades(limit)
+    
+    def get_profit_by_days(self, days=7):
+        """Получение прибыли по дням для графика"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT DATE(close_timestamp) as trade_date, 
+                   SUM(profit_loss) as daily_profit
+            FROM trades 
+            WHERE close_timestamp IS NOT NULL 
+            AND close_timestamp >= datetime('now', '-' || ? || ' days')
+            GROUP BY DATE(close_timestamp)
+            ORDER BY trade_date
+        ''', (days,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        # Создаем данные для всех дней
+        from datetime import datetime, timedelta
+        profit_data = {}
+        for result in results:
+            profit_data[result[0]] = result[1]
+        
+        # Заполняем пропущенные дни нулями
+        daily_profits = []
+        end_date = datetime.now()
+        for i in range(days):
+            date = (end_date - timedelta(days=days-1-i)).strftime('%Y-%m-%d')
+            profit = profit_data.get(date, 0)
+            daily_profits.append(profit)
+        
+        return daily_profits
+    
+    def get_trading_statistics(self):
+        """Получение торговой статистики"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Общая статистика
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as profitable_trades,
+                SUM(profit_loss) as total_profit,
+                AVG(profit_loss) as avg_profit,
+                MIN(profit_loss) as max_loss,
+                MAX(profit_loss) as max_win
+            FROM trades 
+            WHERE status = 'CLOSED' AND profit_loss IS NOT NULL
+        ''')
+        
+        stats = cursor.fetchone()
+        
+        # Открытые позиции
+        cursor.execute('''
+            SELECT COUNT(*) FROM trades WHERE status = 'OPEN'
+        ''')
+        
+        open_positions = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        if stats and stats[0] > 0:
+            return {
+                'total_trades': stats[0],
+                'profitable_trades': stats[1] or 0,
+                'total_profit': stats[2] or 0,
+                'avg_profit': stats[3] or 0,
+                'max_loss': abs(stats[4]) if stats[4] else 0,
+                'max_win': stats[5] or 0,
+                'open_positions': open_positions,
+                'win_rate': (stats[1] / stats[0] * 100) if stats[0] > 0 else 0
+            }
+        
+        return {
+            'total_trades': 0,
+            'profitable_trades': 0,
+            'total_profit': 0,
+            'avg_profit': 0,
+            'max_loss': 0,
+            'max_win': 0,
+            'open_positions': open_positions,
+            'win_rate': 0
+        } 

@@ -135,6 +135,118 @@ def create_sidebar(main_app, active_page=None):
         alignment=ft.alignment.top_left
     )
 
+def create_dashboard_right_panel(logic_manager):
+    """Создает правую панель дашборда с историей сделок"""
+    def get_recent_trades_view():
+        """Получение и отображение последних сделок"""
+        if not logic_manager or not logic_manager.database:
+            return ft.Column([
+                ft.Text("История сделок", size=16, weight=ft.FontWeight.BOLD, color="#ffffff"),
+                ft.Container(height=16),
+                ft.Text("Нет данных", color="#888888", size=12)
+            ])
+        
+        recent_trades = logic_manager.database.get_recent_trades(limit=5)
+        
+        trades_widgets = []
+        for trade in recent_trades:
+            # Определяем цвет на основе прибыли
+            profit_color = "#4CAF50" if trade.get('profit_loss', 0) >= 0 else "#f44336"
+            profit_text = f"${trade.get('profit_loss', 0):.2f}"
+            
+            # Форматируем время
+            timestamp = trade.get('timestamp', '')
+            if timestamp:
+                try:
+                    from datetime import datetime
+                    dt = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                    time_str = dt.strftime('%H:%M')
+                    date_str = dt.strftime('%d.%m')
+                except:
+                    time_str = timestamp[:5]
+                    date_str = timestamp[:10]
+            else:
+                time_str = "N/A"
+                date_str = "N/A"
+            
+            # Определяем иконку направления
+            direction_icon = "trending_up" if trade.get('type') == 'BUY' else "trending_down"
+            direction_color = "#4CAF50" if trade.get('type') == 'BUY' else "#f44336"
+            
+            trade_widget = ft.Container(
+                padding=12,
+                margin=ft.margin.only(bottom=8),
+                bgcolor="#2a2a2a",
+                border_radius=8,
+                content=ft.Column([
+                    ft.Row([
+                        ft.Icon(direction_icon, color=direction_color, size=16),
+                        ft.Text(
+                            f"{trade.get('symbol', 'N/A')} {trade.get('type', 'N/A')}", 
+                            size=12, 
+                            weight=ft.FontWeight.BOLD, 
+                            color="#ffffff"
+                        ),
+                        ft.Container(expand=True),
+                        ft.Text(time_str, size=10, color="#888888")
+                    ]),
+                    ft.Row([
+                        ft.Column([
+                            ft.Text("Вход", size=9, color="#888888"),
+                            ft.Text(f"{trade.get('entry_price', 0):.4f}", size=11, color="#ffffff")
+                        ], spacing=2),
+                        ft.Container(width=8),
+                        ft.Column([
+                            ft.Text("Выход", size=9, color="#888888"),
+                            ft.Text(f"{trade.get('exit_price', 0):.4f}" if trade.get('exit_price') else "—", size=11, color="#ffffff")
+                        ], spacing=2),
+                        ft.Container(expand=True),
+                        ft.Column([
+                            ft.Text("P&L", size=9, color="#888888"),
+                            ft.Text(profit_text, size=11, color=profit_color, weight=ft.FontWeight.BOLD)
+                        ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.END)
+                    ]),
+                    ft.Row([
+                        ft.Text(f"Статус: {trade.get('status', 'N/A')}", size=9, color="#888888"),
+                        ft.Container(expand=True),
+                        ft.Text(date_str, size=9, color="#888888")
+                    ])
+                ], spacing=4)
+            )
+            trades_widgets.append(trade_widget)
+        
+        if not trades_widgets:
+            trades_widgets.append(
+                ft.Container(
+                    padding=16,
+                    bgcolor="#2a2a2a",
+                    border_radius=8,
+                    content=ft.Text("Нет данных о сделках", color="#888888", size=12)
+                )
+            )
+        
+        return ft.Column([
+            ft.Row([
+                ft.Text("История сделок", size=16, weight=ft.FontWeight.BOLD, color="#ffffff"),
+                ft.Container(expand=True),
+                ft.IconButton(
+                    icon="refresh",
+                    icon_color="#888888",
+                    icon_size=16,
+                    tooltip="Обновить"
+                )
+            ]),
+            ft.Container(height=16),
+            ft.Column(trades_widgets, spacing=0, scroll=ft.ScrollMode.AUTO)
+        ])
+    
+    return ft.Container(
+        width=300,
+        bgcolor="#1a1a1a",
+        padding=16,
+        content=get_recent_trades_view()
+    )
+
 class MainApp:
     def __init__(self):
         self.logic_manager = None
@@ -235,8 +347,14 @@ class MainApp:
         )
 
         # Создаем страницы
+        dashboard_content = create_dashboard_view(self.page, self.logic_manager)
+        dashboard_right_panel = create_dashboard_right_panel(self.logic_manager)
+        
         self.pages = {
-            "Dashboard": create_dashboard_view(self.page, self.logic_manager),
+            "Dashboard": ft.Row([
+                ft.Container(content=dashboard_content, expand=True, padding=0),
+                dashboard_right_panel
+            ], spacing=0),
             "Parser BOT": create_parser_bot_view(self.logic_manager),
             "Smart Money BOT": create_smartmoney_bot_view(self.page, self.logic_manager),
             "MT5": create_mt5_view(self.logic_manager),
